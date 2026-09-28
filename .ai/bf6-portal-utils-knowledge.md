@@ -6,9 +6,171 @@ Always prefer patterns found here over raw 'mod' namespace calls.
 
 ---
 
+## Module: animations
+
+The `Animations` namespace provides a high-performance UI animation engine tailored for server-side QuickJS environments in Battlefield Portal. The system is designed with zero-allocation steady-state loops, Structure of Arrays (SoA) pooling, and permanent master ticker integration with instant early exit.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Examples
+
+#### 1. Standard Tween Animation
+
+```ts
+import { Animations } from 'bf6-portal-utils/animations';
+import { Transitions } from 'bf6-portal-utils/transitions';
+
+// Start a tween animation (returns unboxed AnimationID or null if pool full)
+const animId = Animations.startTween({
+    from: 0,
+    to: 200,
+    duration: 600, // ms
+    delayMs: 150, // optional start delay
+    easing: Transitions.Easing.outExpo,
+    onUpdate: (value) => {
+        widget.width = value;
+    },
+    onComplete: () => {
+        // Animation completed
+    },
+});
+
+if (animId !== null) {
+    // Functional lifecycle control
+    Animations.pause(animId);
+    Animations.resume(animId);
+    Animations.stop(animId);
+
+    // Status queries
+    const active = Animations.isActive(animId); // true if allocated in pool
+    const running = Animations.isRunning(animId); // true if ticking, undefined if invalid
+    const paused = Animations.isPaused(animId); // true if paused, undefined if invalid
+}
+```
+
+#### 2. Spring Physics Animation
+
+```ts
+import { Animations } from 'bf6-portal-utils/animations';
+
+const springId = Animations.startSpring({
+    from: 0,
+    to: 100,
+    stiffness: 180,
+    damping: 24,
+    precision: 0.001,
+    onUpdate: (value) => {
+        widget.x = value;
+    },
+    onComplete: () => {
+        // Spring settled at target
+    },
+});
+```
+
+#### 3. Decay / Inertia Momentum Animation
+
+```ts
+import { Animations } from 'bf6-portal-utils/animations';
+
+const decayId = Animations.startDecay({
+    from: 0,
+    velocity: 500, // units per second
+    deceleration: 0.997, // friction per ms
+    precision: 0.01,
+    onUpdate: (value) => {
+        widget.scrollOffset = value;
+    },
+    onComplete: () => {
+        // Decay settled
+    },
+});
+```
+
+---
+
+## Module: benchmarker
+
+The `Benchmarker` namespace provides tiny, focused helpers for **measuring how long pure JavaScript work takes to run** inside Battlefield Portal’s QuickJS runtime. It lets you answer questions like “How many times can I safely run this loop in 10ms?” or “Roughly how expensive is this function per call?” without having to wire up your own timing loops.
+
+**Important:** The module is designed for **local benchmarking and experimentation**, not for production in-game code paths. You should use it in isolated test mods, in small debug harnesses, or during development when tuning algorithms—then bake the insights into your final design.
+
+Because timing inside a live server can be noisy (tick scheduling, other scripts, engine load), treat these tools as **directional**: use them to compare alternatives and to find safe budgets, not to guarantee exact numbers.
+
+### Example: Comparing Two Implementations
+
+```ts
+import { Benchmarker } from 'bf6-portal-utils/benchmarker';
+
+function implementationA(): void {
+    // Some pure-JS logic
+}
+
+function implementationB(): void {
+    // Alternative pure-JS logic
+}
+
+export async function OnGameModeStarted(): Promise<void> {
+    const iterations = 10_000;
+
+    const totalMsA = Benchmarker.run(implementationA, iterations);
+    const totalMsB = Benchmarker.run(implementationB, iterations);
+
+    const perOpA = totalMsA / iterations;
+    const perOpB = totalMsB / iterations;
+
+    mod.Trace(`A: ${perOpA.toFixed(4)} ms/op, B: ${perOpB.toFixed(4)} ms/op`);
+}
+```
+
+### Example: Finding a Safe Per-Tick Budget
+
+```ts
+import { Benchmarker } from 'bf6-portal-utils/benchmarker';
+
+function expensiveWork(): void {
+    // Pure-JS work you might want to do per player, per tick
+}
+
+export async function OnGameModeStarted(): Promise<void> {
+    // Roughly, how many times can we run this in ~5ms?
+    const safeIterations = Benchmarker.findMaxIterations(expensiveWork, 5, 100);
+
+    mod.Trace(`Safe iterations in 5ms window: ${safeIterations}`);
+}
+```
+
+### Example: Async Benchmarking (Pure Promises Only)
+
+```ts
+import { Benchmarker } from 'bf6-portal-utils/benchmarker';
+
+async function purePromiseWork(): Promise<void> {
+    // NOTE: This must NOT call `mod.Wait()` or `Timers.setTimeout()`
+    await Promise.resolve();
+}
+
+export async function OnGameModeStarted(): Promise<void> {
+    const iterations = 1_000;
+    const totalMs = await Benchmarker.runAsync(purePromiseWork, iterations);
+    const perOp = totalMs / iterations;
+
+    mod.Trace(`Async work: ${perOp.toFixed(4)} ms/op (pure Promise version)`);
+}
+```
+
+## Known Limitations & Caveats
+
+- **Do not benchmark `mod.Wait` or `Timers.setTimeout`** – Any function that yields to the engine (directly or indirectly) will stall until the next server tick (~33ms), turning a microbenchmark into a “count how many frames passed” test. This is why the async helpers explicitly warn against using `mod.Wait` or `Timers.setTimeout` in the callback.
+- **Server variability** – Results can vary between runs and between servers depending on load, other scripts, and engine scheduling. Use the numbers as **guides**, not strict guarantees.
+- **Blocking work only** – Benchmarks only measure the time spent in the function body plus any pure-JS work it calls. They do not capture time waiting on engine I/O or network.
+- **No built-in logging** – This module intentionally does not depend on the Logging or Logger modules. You are responsible for logging or displaying results.
+
+---
+
 ## Module: callback-handler
 
-The `CallbackHandler` namespace provides a small utility for safely invoking user callbacks (sync or async). It catches synchronous throws and asynchronous promise rejections, logs them via a passed-in `Logging` instance, and does not rethrow—so a failing callback cannot kill the execution of the calling logic. Other modules in this repo (e.g. Timers, Events, UI, Raycast, Clocks) use it internally; you can use it in your own modules when invoking optional or user-provided callbacks.
+The `CallbackHandler` namespace provides a lightweight utility for safely invoking user callbacks (sync or async) with **zero runtime allocations**. It catches synchronous throws and asynchronous promise rejections, logs them via a passed-in `Logging` instance at `LogLevel.Error`, and does not rethrow—ensuring that a failing callback cannot disrupt host execution.
 
 ### Example
 
@@ -18,14 +180,14 @@ import { Logging } from 'bf6-portal-utils/logging';
 
 const logging = new Logging('MyModule');
 
-// Optional callback with arguments
+// Optional callback with up to 4 arguments (zero allocations)
 function notifyPlayer(player: mod.Player, message: string): void {
-    CallbackHandler.invoke(this._onMessage, [player, message], 'onMessage', logging, Logging.LogLevel.Error);
+    CallbackHandler.invoke(this._onMessage, player, message, undefined, undefined, logging, 'notifyPlayer');
 }
 
-// Optional no-args callback (e.g. timer tick, event fired)
+// Optional no-args callback (zero allocations)
 function tick(): void {
-    CallbackHandler.invokeNoArgs(this._onTick, 'onTick', logging, Logging.LogLevel.Error);
+    CallbackHandler.invokeNoArgs(this._onTick, logging);
 }
 ```
 
@@ -33,7 +195,9 @@ function tick(): void {
 
 ## Module: clocks
 
-The `Clocks` namespace provides **CountUpClock** (stopwatch) and **CountDownClock** (timer) classes for Battlefield Portal experiences. Both are efficient, drift-resistant, and well-suited to UIs that need to update every second, every minute, or when the clock completes—e.g. match timers, round timers, or bomb fuse countdowns. Time is tracked internally as accumulated milliseconds while the clock is running; the next tick is scheduled to align with whole-second boundaries, minimizing drift. Callbacks (`onSecond`, `onMinute`, `onComplete`) are invoked only when the corresponding integer value changes, and errors in callbacks are caught and logged so they cannot break the clock.
+The `Clocks` namespace provides high-performance **CountUp** (stopwatch) and **CountDown** (timer) functionality for Battlefield Portal experiences. The clocks are efficient, drift-resistant, and well-suited to UIs that need to update every second, every minute, or when the clock completes—e.g. match timers, round timers, or bomb fuse countdowns. Time is tracked internally as accumulated milliseconds while the clock is running; the next tick is scheduled to align with whole-second boundaries, minimizing drift. Callbacks (`onSecond`, `onMinute`, `onComplete`) are invoked only when the corresponding integer value changes, and errors in callbacks are caught and logged so they cannot break the clock.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -43,49 +207,51 @@ import { Events } from 'bf6-portal-utils/events';
 
 Clocks.setLogging((text) => console.log(text), Clocks.LogLevel.Info);
 
-let roundClock: Clocks.CountDownClock;
+let roundClockId: Clocks.ClockID = Clocks.INVALID_CLOCK_ID;
 
 Events.OnGameModeStarted.subscribe(() => {
     // 5-minute round timer; update UI every second, voice over every minute, and end round when time runs out
-    roundClock = new Clocks.CountDownClock(5 * 60, {
+    roundClockId = Clocks.createCountDown(5 * 60, {
         onSecond: (seconds) => updateTimerDisplay(seconds),
         onMinute: (minutes) => announceMinute(minutes),
         onComplete: () => endRound(),
     });
-    roundClock.start();
+
+    Clocks.start(roundClockId);
 });
 
 Events.OnPlayerDeployed.subscribe((player: mod.Player) => {
     // Stopwatch for a single player (e.g. lap time), with 1-hour limit
-    const stopwatch = new Clocks.CountUpClock({
+    const stopwatchId = Clocks.createCountUp({
         timeLimitSeconds: 3600,
         onSecond: (seconds) => setHudSeconds(seconds),
         onComplete: () => showTimeLimitReached(),
     });
-    stopwatch.start();
-});
 
-Events.OnPlayerDied.subscribe(
-    (victim: mod.Player, killer: mod.Player, deathType: mod.DeathType, weapon: mod.WeaponUnlock) => {
-        stopwatch.stop();
-    }
-);
+    Clocks.start(stopwatchId);
+
+    Events.OnPlayerDied.subscribe(
+        (victim: mod.Player, killer: mod.Player, deathType: mod.DeathType, weapon: mod.WeaponUnlock) => {
+            Clocks.stop(stopwatchId);
+        }
+    );
+});
 ```
 
 ## When Callbacks Fire (Lifecycle)
 
-Callbacks are driven by an internal **tick** that runs when the clock starts or resumes, once after `stop()` or `pause()` (to commit elapsed time), on a timer at whole-second boundaries while running, and when `addSeconds()` or `subtractSeconds()` is called. Each tick checks whether an integer second or minute boundary has been reached or crossed since the last reported value, and whether the clock has reached its completion condition.
+Callbacks are driven by an internal **tick** that runs when the clock starts or resumes, once after `stop()` or `pause()` (to commit elapsed time), on a timer at whole-second boundaries while running, when `addSeconds()` or `subtractSeconds()` is called, and when `reset()` is called while the clock is **running** (to report the snapped-to-start position). Each tick checks whether an integer second or minute boundary has been reached or crossed since the last reported value, and whether the clock has reached its completion condition.
 
 ### `onSecond(currentSeconds: number)`
 
 Fires every time the clock reaches or crosses an integer second boundary (see [Rounding](#rounding-count-up-vs-count-down)) for which it has not yet invoked `onSecond`. That can happen when:
 
 - Time elapses normally while the clock is running (one firing per whole second).
-- `start()` or `resume()` runs on a fresh or reset clock (first tick reports the current integer second).
+- `start()` or `resume()` runs on a fresh clock (first tick reports the current integer second).
 - `stop()` or `pause()` commits elapsed time and the resulting value crosses a second boundary not yet reported.
 - `addSeconds()` or `subtractSeconds()` adjusts time so that the integer second changes.
-
-`reset()` does not run a tick and does not fire callbacks; the next `start()` will run a tick and report the new initial value.
+- `reset()` while the clock is **running** clears elapsed time but keeps it running; the deferred tick reports the starting integer second (and minute if applicable), same idea as the first tick after `start()`.
+- `reset()` while the clock is **stopped** or **paused** does not run a tick or fire `onSecond` / `onMinute`; call `start()` to begin again from the initial value.
 
 ### `onMinute(currentMinutes: number)`
 
@@ -95,14 +261,77 @@ Follows the same rules as `onSecond`, but for integer **minute** boundaries (der
 
 Fires at most once per clock when the completion condition is met during a tick:
 
-- **CountDownClock:** when remaining time reaches 0.
-- **CountUpClock:** when elapsed time reaches the optional `timeLimitSeconds` (default 86400 if not set).
+- **CountDown:** when remaining time reaches 0.
+- **CountUp:** when elapsed time reaches the optional `timeLimitSeconds` (default 86400 if not set).
 
-That can happen when time elapses normally while running, or when `stop()` or `pause()` commits elapsed time and the clock is then in a completed state. `reset()` never fires `onComplete` as the clocks internal state is immediately reset before a tick can run to check for completion. In the tick where a CountDownClock reaches 0, `onComplete()` is invoked first, then `onSecond(0)` (and possibly `onMinute(0)`) in the same tick.
+That can happen when time elapses normally while running, or when `stop()` or `pause()` commits elapsed time and the clock is then in a completed state. `reset()` never fires `onComplete` as the clock's internal state is immediately reset before a tick can run to check for completion. In the tick where a CountDown clock reaches 0, `onComplete()` is invoked first, then `onSecond(0)` (and possibly `onMinute(0)`) in the same tick.
 
 ### Synchronous vs asynchronous callbacks
 
 Synchronous callbacks run inside the tick and **block** the clock logic: the next tick is only scheduled via `setTimeout` after `onComplete`, `onSecond`, and `onMinute` have been invoked. The time until the next whole-second boundary is computed at that moment (when `setTimeout` is called), so the delay is based on the current time after your callbacks return. As a result, short synchronous callbacks should not cause drift—as long as they are not long-running (i.e. no longer than a second in total per tick). Asynchronous callbacks are preferred when you need to do more work, but short synchronous callbacks (e.g. updating a simple UI or game value, or playing a voice over) are safe.
+
+---
+
+## Module: colors
+
+The `Colors` namespace provides a high-performance, transparent color representation and manipulation engine tailored for Battlefield Portal. Colors are represented as simple transparent JavaScript objects `{ r, g, b }` with normalized channel values in the range $[0, 1]$.
+
+Key features include:
+
+- **Transparent Representation (`Color`)** – Plain `{ r, g, b }` objects with zero opaque wrapper overhead, allowing instant property access, destructuring, spread operations, and JSON serialization.
+- **Dedicated Color Domain Utilities** – Built-in support for hex parsing (`fromHex`), hex formatting (`toHex`), clamping (`clamp`), tinting / Hadamard modulation (`tint`), and perceived luminance calculations (`luminance`).
+- **Comprehensive Math & Blending** – Zero-allocation `lerp`, `add`, `subtract`, `multiply`, `divide`, `equals`, `set`, `copy`, and `clone` utilities supporting optional caller-provided `out` objects for garbage-free per-frame loops.
+- **Standard & Battlefield Brand Presets** – Pre-packaged constants (`WHITE`, `BLACK`, `RED`, `BF_BLUE_BRIGHT`, `BF_RED_DARK`, etc.) frozen for runtime safety.
+- **Zero-Allocation Bridging** – Seamless conversion to/from engine native `mod.Vector` (`toVector`, `fromVector`) and spatial `Vectors.Vector3` (`toVector3`, `fromVector3`).
+
+### Examples
+
+#### 1. Creating and Manipulating Colors
+
+```ts
+import { Colors } from 'bf6-portal-utils/colors';
+
+// Parse from Hex
+const orange = Colors.fromHex('#FF8361'); // { r: 1.0, g: 0.5137, b: 0.3804 }
+const cyan = Colors.fromHex('00FFFF'); // { r: 0, g: 1, b: 1 }
+
+// Convert back to Hex
+const hexString = Colors.toHex(orange); // '#FF8361'
+
+// Zero-allocation linear interpolation
+const scratchColor: Colors.Color = { r: 0, g: 0, b: 0 };
+Colors.lerp(Colors.RED, Colors.BLUE, 0.5, scratchColor);
+```
+
+#### 2. Color Tinting and Scaling
+
+```ts
+import { Colors } from 'bf6-portal-utils/colors';
+
+const baseColor = Colors.fromHex('#D5EBF9');
+const tintColor = { r: 1.0, g: 0.8, b: 0.8 };
+
+// Element-wise modulation (Hadamard product)
+const tinted = Colors.tint(baseColor, tintColor);
+
+// Brightness multiplier
+const dimColor = Colors.multiply(baseColor, 0.5);
+```
+
+#### 3. Interoperability with Engine and Vectors
+
+```ts
+import { Colors } from 'bf6-portal-utils/colors';
+import { Vectors } from 'bf6-portal-utils/vectors';
+
+const color = Colors.RED;
+
+// Bridge to engine native vector
+const modVec = Colors.toVector(color); // mod.CreateVector(1, 0, 0)
+
+// Bridge to spatial Vector3
+const vec3: Vectors.Vector3 = Colors.toVector3(color); // { x: 1, y: 0, z: 0 }
+```
 
 ---
 
@@ -161,6 +390,8 @@ Events.OnGameModeEnding.subscribe(() => {
 ```
 
 ```ts
+import { Events, EventPriority } from 'bf6-portal-utils/events';
+
 // Channel style (preferred)
 const joinGameUnsubscribe = Events.OnPlayerJoinGame.subscribe((player: mod.Player) => {
     console.log(`Player joined game: ${mod.GetObjId(player)}`);
@@ -168,10 +399,23 @@ const joinGameUnsubscribe = Events.OnPlayerJoinGame.subscribe((player: mod.Playe
 // Later, unsubscribe
 joinGameUnsubscribe();
 
+// Subscribe with priority
+Events.OngoingGlobal.subscribe(() => {
+    console.log('Runs before normal and late handlers');
+}, EventPriority.First);
+
+Events.OngoingGlobal.subscribe(() => {
+    console.log('Runs after all game logic handlers (e.g. flushing UI dirty states)');
+}, EventPriority.Last);
+
 // Object style
-const playerDeployedUnsubscribe = Events.subscribe(Events.Type.OnPlayerDeployed, (player: mod.Player) => {
-    console.log(`Player deployed: ${mod.GetObjId(player)}`);
-});
+const playerDeployedUnsubscribe = Events.subscribe(
+    Events.Type.OnPlayerDeployed,
+    (player: mod.Player) => {
+        console.log(`Player deployed: ${mod.GetObjId(player)}`);
+    },
+    EventPriority.Normal
+);
 // Later, unsubscribe
 playerDeployedUnsubscribe();
 ```
@@ -245,19 +489,35 @@ Events.Type.OnPlayerDeployed(somePlayer);
 
 Available event types include:
 
-- `OngoingGlobal`, `OngoingAreaTrigger`, `OngoingCapturePoint`, `OngoingEmplacementSpawner`, `OngoingHQ`, `OngoingInteractPoint`, `OngoingLootSpawner`, `OngoingMCOM`, `OngoingPlayer`, `OngoingRingOfFire`, `OngoingSector`, `OngoingSpawner`, `OngoingSpawnPoint`, `OngoingTeam`, `OngoingVehicle`, `OngoingVehicleSpawner`, `OngoingWaypointPath`, `OngoingWorldIcon`
-- `OnAIMoveToFailed`, `OnAIMoveToRunning`, `OnAIMoveToSucceeded`, `OnAIParachuteRunning`, `OnAIParachuteSucceeded`, `OnAIWaypointIdleFailed`, `OnAIWaypointIdleRunning`, `OnAIWaypointIdleSucceeded`
-- `OnCapturePointCaptured`, `OnCapturePointCapturing`, `OnCapturePointLost`
-- `OnGameModeEnding`, `OnGameModeStarted`
-- `OnMandown`
-- `OnMCOMArmed`, `OnMCOMDefused`, `OnMCOMDestroyed`
-- `OnPlayerDamaged`, `OnPlayerDeployed`, `OnPlayerDied`, `OnPlayerEarnedKill`, `OnPlayerEarnedKillAssist`, `OnPlayerEnterAreaTrigger`, `OnPlayerEnterCapturePoint`, `OnPlayerEnterVehicle`, `OnPlayerEnterVehicleSeat`, `OnPlayerExitAreaTrigger`, `OnPlayerExitCapturePoint`, `OnPlayerExitVehicle`, `OnPlayerExitVehicleSeat`, `OnPlayerInteract`, `OnPlayerJoinGame`, `OnPlayerLeaveGame`, `OnPlayerSwitchTeam`, `OnPlayerUIButtonEvent`, `OnPlayerUndeploy`
-- `OnRayCastHit`, `OnRayCastMissed`
-- `OnRevived`
-- `OnRingOfFireZoneSizeChange`
-- `OnSpawnerSpawned`
-- `OnTimeLimitReached`
-- `OnVehicleDestroyed`, `OnVehicleSpawned`
+- **Tick & Ongoing Loops**
+    - _Tick Loops:_ `OngoingGlobal` (alias: `OnTickStart`), `OnTickEnd`
+    - _Entity Ongoing:_ `OngoingAreaTrigger`, `OngoingBlockingSphere`, `OngoingBomb`, `OngoingCapturePoint`, `OngoingEmplacementSpawner`, `OngoingHQ`, `OngoingInteractPoint`, `OngoingLootSpawner`, `OngoingMCOM`, `OngoingPlayer`, `OngoingRingOfFire`, `OngoingSector`, `OngoingSpawner`, `OngoingSpawnPoint`, `OngoingTeam`, `OngoingVehicle`, `OngoingVehicleSpawner`, `OngoingWaypointPath`, `OngoingWorldIcon`
+- **Player Lifecycle, Combat & Interaction**
+    - _Session & Spawning:_ `OnPlayerJoinGame`, `OnPlayerLeaveGame`, `OnPlayerSwitchTeam`, `OnPlayerDeployed`, `OnPlayerUndeploy`
+    - _Health & Combat:_ `OnPlayerDamaged`, `OnMandown`, `OnRevived`, `OnPlayerDied`, `OnPlayerEarnedKill`, `OnPlayerEarnedKillAssist`
+    - _UI & Interaction:_ `OnPlayerInteract`, `OnPlayerUIButtonEvent`
+- **Player Environment & Volumes**
+    - _Triggers & Points:_ `OnPlayerEnterAreaTrigger`, `OnPlayerExitAreaTrigger`, `OnPlayerEnterCapturePoint`, `OnPlayerExitCapturePoint`
+    - _Water:_ `OnPlayerEnteredWater`, `OnPlayerExitedWater`, `OnPlayerSubmerged`, `OnPlayerEmerged`
+    - _Hazards:_ `OnPlayerEnterVL7Cloud`, `OnPlayerExitVL7Cloud`
+- **Vehicles**
+    - _Boarding & Seating:_ `OnPlayerEnterVehicle`, `OnPlayerExitVehicle`, `OnPlayerEnterVehicleSeat`, `OnPlayerExitVehicleSeat`
+    - _Lifecycle:_ `OnVehicleSpawned`, `OnVehicleDestroyed`
+- **Game Modes & Objectives**
+    - _Match Flow:_ `OnGameModeStarted`, `OnGameModeEnding`, `OnTimeLimitReached`
+    - _Capture Points:_ `OnCapturePointCapturing`, `OnCapturePointCaptured`, `OnCapturePointLost`
+    - _MCOM / Rush:_ `OnMCOMArmed`, `OnMCOMDefused`, `OnMCOMDestroyed`
+    - _Bomb / Delivery:_ `OnBombPickedUp`, `OnBombDropped`, `OnBombStateChanged`
+    - _Ring of Fire:_ `OnRingOfFireZoneSizeChange`
+- **AI & Bots**
+    - _Movement:_ `OnAIMoveToRunning`, `OnAIMoveToSucceeded`, `OnAIMoveToFailed`
+    - _Parachuting:_ `OnAIParachuteRunning`, `OnAIParachuteSucceeded`
+    - _Waypoints:_ `OnAIWaypointIdleRunning`, `OnAIWaypointIdleSucceeded`, `OnAIWaypointIdleFailed`
+- **Gadgets, Physics & World**
+    - _Portal Gadget:_ `OnPortalGadgetAimStart`, `OnPortalGadgetAimStop`, `OnPortalGadgetFireStart`, `OnPortalGadgetFireStop`, `OnPortalGadgetLaserToggle`
+    - _Raycasting:_ `OnRayCastHit`, `OnRayCastMissed`
+    - _Spawners:_ `OnSpawnerSpawned`
+    - _Map Specific:_ `OnGolmudTrainStopped`
 
 ```ts
 import { Events } from 'bf6-portal-utils/events';
@@ -266,7 +526,7 @@ import { Events } from 'bf6-portal-utils/events';
 Events.setLogging(
     (text) => console.log(text),
     Events.LogLevel.Warning,
-    true // includeError
+    true // includeRawError
 );
 
 // If a handler throws an error, it will be logged automatically
@@ -459,21 +719,23 @@ This example demonstrates:
 
 - **Handler Reference Equality** – When unsubscribing, you must pass the exact same function reference that was used in `subscribe()`. Anonymous functions cannot be unsubscribed unless you store the reference. **Recommended:** Use the unsubscribe function returned by `subscribe()` instead of storing handler references.
 
-- **Execution Order** – Handler execution order is not guaranteed. If you need handlers to execute in a specific order, chain them manually or use a single handler that calls other functions in order.
+- **Execution Order** – Handlers execute in ascending order of their priority (`First` $\to$ `Normal` $\to$ `Last` or custom numbers). Handlers with the same priority value execute in deterministic FIFO order (the order in which they were subscribed).
 
 - **No Return Values** – Event handlers cannot return values to the caller. All handlers return `void` or `Promise<void>`. If you need to collect results, use shared state or callbacks.
 
 - **Completion and Ordering** – Synchronous handlers complete before the trigger returns; asynchronous handlers are not awaited, so you cannot rely on async handlers finishing before other code runs. Long-running synchronous handlers block other handlers and the caller—prefer async handlers for non-trivial work. Use promises or callbacks if you need to wait for handler completion.
 
+- **Tick Budget (~50ms)** – The server may abort the JavaScript process for a game tick if total work exceeds its per-tick cap, leading to incomplete event executions. This is mechanism has since been disabled, but the module will still log how many triggers did not complete per event type over a rolling window; see [Tick Budget and Incomplete Triggers](#tick-budget-and-incomplete-triggers) for details and mitigation.
+
 ---
 
 ## Module: ffa-drop-ins
 
-This TypeScript `FFADropIns` namespace enables Free For All (FFA) spawning for custom Battlefield Portal experiences by short-circuiting the normal deploy process in favor of a custom UI prompt with developer-curated drop-in spawn points. The system asks players if they would like to spawn now or be asked again after a delay, allowing players to adjust their loadout and settings at the deploy screen without being locked out.
+The TypeScript `FFADropIns` class enables Free For All (FFA) spawning for custom Battlefield Portal experiences by short-circuiting the normal deploy process in favor of a custom UI prompt with developer-curated drop-in spawn points. The system asks players if they would like to spawn now or be asked again after a delay, allowing players to adjust their loadout and settings at the deploy screen without being locked out.
 
-The spawning system accepts an arbitrary region of individual rectangles and an altitude. You call `FFADropIns.initialize()` to set up spawn points, `FFADropIns.enableSpawnQueueProcessing()` / `disableSpawnQueueProcessing()` to control queue processing, and create `FFADropIns.Soldier` instances per player.
+The spawning system accepts an arbitrary region of individual rectangles and an altitude. It uses a high-performance **Structure of Arrays (SoA)** memory layout with typed arrays (`Float32Array`) to precompute area weights and generate pre-created drop-in spawn points upfront with zero per-frame heap churn.
 
-> **Note** The `FFADropIns` namespace depends on the `UI` and `Events` namespaces (both in this repository) and the `mod` namespace (available in the `bf6-portal-mod-types` package). Internally it uses `Timers`, `Clocks`, and `Vectors` from this repository. **You must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. `FFADropIns` subscribes to `Events.OnPlayerLeaveGame` to clear per-player state and avoid resource leaks when a player leaves; the `UI` module uses `Events` to register the button handler. Because only one implementation of each Portal event can exist per project (the `Events` module owns those hooks), your mod must subscribe via `Events` only. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -490,26 +752,33 @@ const DROP_IN_REGION: FFADropIns.SpawnData = {
     y: 300, // Altitude for drop-in (players spawn in the air and skydive until they open their parachute)
 };
 
+let spawner: FFADropIns;
+
 Events.OnGameModeStarted.subscribe(() => {
-    FFADropIns.initialize(DROP_IN_REGION, {
+    // Instantiate the drop-in spawning system
+    spawner = new FFADropIns(DROP_IN_REGION, {
         dropInPoints: 64, // Optional (default 64) – number of spawn points to pre-create
         initialPromptDelay: 10, // Optional (default 10 seconds)
         promptDelay: 10, // Optional (default 10 seconds)
         queueProcessingDelay: 2, // Optional (default 2 seconds)
     });
 
-    FFADropIns.enableSpawnQueueProcessing();
+    // Enable spawn queue processing
+    spawner.enableSpawnQueueProcessing();
 
+    // Optional: Configure logging
     FFADropIns.setLogging((text) => console.log(text), FFADropIns.LogLevel.Info);
 });
 
 Events.OnPlayerJoinGame.subscribe((eventPlayer: mod.Player) => {
-    const soldier = new FFADropIns.Soldier(eventPlayer, false);
-    soldier.startDelayForPrompt();
+    // Add player to drop-in spawning system and start delay countdown
+    spawner.addPlayer(eventPlayer, false);
+    spawner.startDelayForPrompt(eventPlayer);
 });
 
 Events.OnPlayerUndeploy.subscribe((eventPlayer: mod.Player) => {
-    FFADropIns.Soldier.startDelayForPrompt(eventPlayer);
+    // Start delay countdown when a player undeploys
+    spawner.startDelayForPrompt(eventPlayer);
 });
 ```
 
@@ -517,7 +786,7 @@ Events.OnPlayerUndeploy.subscribe((eventPlayer: mod.Player) => {
 
 ### Debug Position Display
 
-The `Soldier` constructor accepts an optional `showDebugPosition` parameter (default: `false`) that enables a real-time position display for developers. When enabled, the player's X, Y, and Z coordinates are displayed at the bottom center of the screen, updating every second.
+The `spawner.addPlayer()` method accepts an optional `showDebugPosition` parameter (default: `false`) that enables a real-time position display for developers. When enabled, the player's X, Y, and Z coordinates are displayed at the bottom center of the screen, updating every second.
 
 **Use Case**: Useful for finding and documenting drop-in regions and altitude (e.g. flying around to set rectangle bounds and `y`).
 
@@ -527,38 +796,20 @@ The `Soldier` constructor accepts an optional `showDebugPosition` parameter (def
 
 ```ts
 Events.OnPlayerJoinGame.subscribe((eventPlayer: mod.Player) => {
-    const soldier = new FFADropIns.Soldier(eventPlayer, mod.GetObjId(eventPlayer) === 0);
-    soldier.startDelayForPrompt();
+    spawner.addPlayer(eventPlayer, mod.GetObjId(eventPlayer) === 0);
+    spawner.startDelayForPrompt(eventPlayer);
 });
 ```
-
-### Required event subscription (via Events only)
-
-You must **not** implement or export any Battlefield Portal event handler functions. Subscribe to game events only through the `Events` module:
-
-1. **`Events.OnGameModeStarted`** – In your subscriber, call `FFADropIns.initialize()` with your spawn data (rectangles + altitude) and `FFADropIns.enableSpawnQueueProcessing()` to start the system.
-2. **`Events.OnPlayerJoinGame`** – In your subscriber, create a new `FFADropIns.Soldier` instance for each player and call `soldier.startDelayForPrompt()` to begin the spawn flow.
-3. **`Events.OnPlayerUndeploy`** – In your subscriber, call `FFADropIns.Soldier.startDelayForPrompt(player)` to restart the spawn flow when players die or undeploy.
-
-## Known Limitations & Caveats
-
-- **Events module required** – You **must** use the [Events module](../events/README.md) for all game event subscription and **must not** implement or export any Battlefield Portal event handler functions in your code. `FFADropIns` subscribes to `Events.OnPlayerLeaveGame` internally to clear per-player state and avoid resource leaks when a player leaves; the `UI` module also uses `Events` to register the button handler. Only one implementation of each Portal event can exist per project, and the Events module owns those hooks. If you export your own `OnPlayerJoinGame`, `OnGameModeStarted`, etc., they will conflict and cause undefined behavior. See [Events — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
-- **Random spawn selection** – When spawning from the queue, the system picks uniformly at random from the pre-created drop-in points. Two players can land at or near the same spot. There is no safe-distance or player-proximity logic (unlike `FFASpawnPoints`). For more spread, increase `dropInPoints` or use multiple rectangles with larger total area.
-- **UI Input Mode** – The system delegates automatic `mod.EnableUIInputMode()` management to the `UI` module. Be careful not to conflict with other UI systems that do not use the `UI` module that also control input mode.
-- **HQ Disabling** – The system automatically disables both team HQs during initialization. If you need team-based spawning elsewhere, you'll need to re-enable HQs manually (but you really should not be mixing this with other systems unless you know what you are doing).
-- **Spawn Point Cleanup** – Spawn points created during initialization are not automatically cleaned up. This is typically fine as they persist for the duration of the match.
-- **AI parachute behavior** – AI tend to open their parachutes very early and then fall slowly, making them easy targets for attackers and likely affecting game balance. Be aware of this when mixing human and AI players in drop-in modes.
-- **AI parachute timing and altitude** – No testing has been done to determine how much fall time (effective altitude) AI need to properly automatically open their parachutes. More work is needed to better control how and when AI open their chutes for balance and safety (e.g. minimum altitude, delay before open, or other tuning).
 
 ---
 
 ## Module: ffa-spawn-points
 
-This TypeScript `FFASpawnPoints` namespace enables Free For All (FFA) spawning for custom Battlefield Portal experiences by short-circuiting the normal deploy process in favor of a custom UI prompt with developer-curated fixed spawn points. The system asks players if they would like to spawn now or be asked again after a delay, allowing players to adjust their loadout and settings at the deploy screen without being locked out.
+The TypeScript `FFASpawnPoints` class enables Free For All (FFA) spawning for custom Battlefield Portal experiences by short-circuiting the normal deploy process in favor of a custom UI prompt with developer-curated fixed spawn points. The system asks players if they would like to spawn now or be asked again after a delay, allowing players to adjust their loadout and settings at the deploy screen without being locked out.
 
-The spawning system uses an intelligent algorithm to find safe spawn points that are appropriately distanced from other players, reducing the chance of spawning directly into combat while maintaining reasonable spawn times. You call `FFASpawnPoints.initialize()` to set up spawn points, `FFASpawnPoints.enableSpawnQueueProcessing()` / `disableSpawnQueueProcessing()` to control queue processing, and create `FFASpawnPoints.Soldier` instances per player.
+The spawning system uses a high-performance **Structure of Arrays (SoA)** memory layout with typed arrays (`Float32Array`, `Float64Array`, `Uint16Array`) and an exhaustive, zero-allocation multi-factor fitness scoring algorithm powered by [`PlayerLocations`](../player-locations/README.md). It evaluates enemy proximity, sector crowding, temporal cooldowns, and forward facing alignment in JavaScript memory with **zero C++ engine foreign function interface (FFI) calls**.
 
-> **Note** The `FFASpawnPoints` namespace depends on the `UI` and `Events` namespaces (both in this repository) and the `mod` namespace (available in the `bf6-portal-mod-types` package). Internally it uses `Timers`, `Clocks`, and `Vectors` from this repository. **You must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. `FFASpawnPoints` subscribes to `Events.OnPlayerLeaveGame` to clear per-player state and avoid resource leaks when a player leaves; the `UI` module uses `Events` to register the button handler. Because only one implementation of each Portal event can exist per project (the `Events` module owns those hooks), your mod must subscribe via `Events` only. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -566,7 +817,7 @@ The spawning system uses an intelligent algorithm to find safe spawn points that
 import { FFASpawnPoints } from 'bf6-portal-utils/ffa-spawn-points';
 import { Events } from 'bf6-portal-utils/events';
 
-// Define your spawn points
+// Define your spawn points: [x, y, z, orientationDegrees]
 const SPAWN_POINTS: FFASpawnPoints.SpawnData[] = [
     [100, 0, 200, 0], // x = 100, y = 0, z = 200, orientation = 0 (North)
     [-100, 0, 200, 90], // x = -100, y = 0, z = 200, orientation = 90 (East)
@@ -575,37 +826,42 @@ const SPAWN_POINTS: FFASpawnPoints.SpawnData[] = [
     // ... more spawn points
 ];
 
+let spawner: FFASpawnPoints;
+
 Events.OnGameModeStarted.subscribe(() => {
-    // Initialize the spawning system
-    FFASpawnPoints.initialize(SPAWN_POINTS, {
-        minimumSafeDistance: 20, // Optional override (default 20)
-        maximumInterestingDistance: 40, // Optional override (default 40)
-        safeOverInterestingFallbackFactor: 1.5, // Optional override (default 1.5)
-        maxSpawnCandidates: 12, // Optional override (default 12)
-        initialPromptDelay: 10, // Optional override (default 10 seconds)
-        promptDelay: 10, // Optional override (default 10 seconds)
-        queueProcessingDelay: 1, // Optional override (default 1 second)
+    // Instantiate the spawning system with custom fitness options
+    spawner = new FFASpawnPoints(SPAWN_POINTS, {
+        defaultScorerOptions: {
+            minSafeDistance: 20, // Disqualify/penalize enemies closer than 20m (default: 20m)
+            idealDistance: 35, // Peak fitness distance to closest enemy (default: 35m)
+            maxDistance: 80, // Far distance cutoff where proximity score drops to 0 (default: 80m)
+            crowdingRadius: 50, // Sector radius to evaluate crossfire risk (default: 50m)
+            crowdingWeight: 0.25, // Penalty per extra enemy in crowding sector (default: 0.25)
+            spawnCooldownMs: 4000, // Cooldown before a spawn point regains full fitness (default: 4000ms)
+            facingWeight: 0.15, // Bonus when spawn orientation faces towards action (default: 0.15)
+        },
+        selectionPoolSize: 3, // Randomly pick from Top-3 candidates to prevent clustering (default: 3)
+        initialPromptDelay: 10, // Delay before first prompt in seconds (default: 10)
+        promptDelay: 10, // Delay between prompts in seconds (default: 10)
+        queueProcessingDelay: 1, // Queue processing interval in seconds (default: 1)
     });
 
     // Enable spawn queue processing
-    FFASpawnPoints.enableSpawnQueueProcessing();
+    spawner.enableSpawnQueueProcessing();
 
     // Optional: Configure logging for spawn system debugging
     FFASpawnPoints.setLogging((text) => console.log(text), FFASpawnPoints.LogLevel.Info);
 });
 
 Events.OnPlayerJoinGame.subscribe((eventPlayer: mod.Player) => {
-    // Create a FFASpawnPoints.Soldier instance for each player
-    // Pass `true` as the second parameter to enable debug position display (useful for finding spawn points).
-    const soldier = new FFASpawnPoints.Soldier(eventPlayer, false);
-
-    // Start the delay countdown for the player.
-    soldier.startDelayForPrompt();
+    // Add player to spawning system and start delay countdown
+    spawner.addPlayer(eventPlayer, false);
+    spawner.startDelayForPrompt(eventPlayer);
 });
 
 Events.OnPlayerUndeploy.subscribe((eventPlayer: mod.Player) => {
-    // Start the delay countdown when a player undeploys (is ready to deploy again).
-    FFASpawnPoints.Soldier.startDelayForPrompt(eventPlayer);
+    // Start delay countdown when a player undeploys
+    spawner.startDelayForPrompt(eventPlayer);
 });
 ```
 
@@ -613,61 +869,66 @@ Events.OnPlayerUndeploy.subscribe((eventPlayer: mod.Player) => {
 
 ### Debug Position Display
 
-The `Soldier` constructor accepts an optional `showDebugPosition` parameter (default: `false`) that enables a real-time position display for developers. When enabled, the player's X, Y, and Z coordinates are displayed at the bottom center of the screen, updating every second.
+The `spawner.addPlayer()` method accepts an optional `showDebugPosition` parameter (default: `false`) that enables a real-time position display for developers. When enabled, the player's X, Y, and Z coordinates are displayed at the bottom center of the screen, updating every second.
 
-**Use Case**: This feature is intended for developers who want to move around maps to find and document spawn positions, as Battlefield Portal does not provide a built-in way to display coordinates in-game.
+**Use Case**: Useful for finding and documenting drop-in regions and altitude (e.g. flying around to set rectangle bounds and `y`).
 
-**Coordinate Format**: Coordinates are scaled by 100 and truncated (using integer truncation) to avoid Portal's decimal display issues. For example:
-
-- A position of `-100.24` will be displayed as `-10024`
-- A position of `50.67` will be displayed as `5067`
-
-To convert back to the actual world coordinates, divide the displayed value by 100.
+**Coordinate Format**: Coordinates are scaled by 100 and truncated (using integer truncation) to avoid Portal's decimal display issues. Divide the displayed value by 100 to get actual world coordinates.
 
 **Example Usage**:
 
 ```ts
-export async function OnPlayerJoinGame(eventPlayer: mod.Player): Promise<void> {
-    // Enable debug position display for development/testing for the first joining player (usually the admin).
-    const soldier = new FFASpawnPoints.Soldier(eventPlayer, mod.GetObjId(eventPlayer) === 0);
-
-    soldier.startDelayForPrompt();
-}
+Events.OnPlayerJoinGame.subscribe((eventPlayer: mod.Player) => {
+    spawner.addPlayer(eventPlayer, mod.GetObjId(eventPlayer) === 0);
+    spawner.startDelayForPrompt(eventPlayer);
+});
 ```
 
-### Required event subscription (via Events only)
+---
 
-You must **not** implement or export any Battlefield Portal event handler functions. Subscribe to game events only through the `Events` module:
+## Module: interleaved-quaternions
 
-1. **`Events.OnGameModeStarted`** – In your subscriber, call `FFASpawnPoints.initialize()` with your spawn points and `FFASpawnPoints.enableSpawnQueueProcessing()` to start the system.
-2. **`Events.OnPlayerJoinGame`** – In your subscriber, create a new `FFASpawnPoints.Soldier` instance for each player and call `soldier.startDelayForPrompt()` to begin the spawn flow.
-3. **`Events.OnPlayerUndeploy`** – In your subscriber, call `FFASpawnPoints.Soldier.startDelayForPrompt(player)` to restart the spawn flow when players die or undeploy.
+The `InterleavedQuaternions` namespace provides low-level, high-performance utilities for working with contiguous Structure of Arrays (SoA) in flat `Float32Array` buffers for 4D Hamiltonian quaternions (stride 4: `w, x, y, z`) in Battlefield 6 Portal experiences.
 
-## Known Limitations & Caveats
+In the memory-constrained Battlefield Portal QuickJS environment, managing hundreds of discrete JavaScript quaternion objects causes heap fragmentation and garbage collection pressure. By storing 4D quaternions contiguously inside flat TypedArrays, memory overhead is minimized and spatial cache locality is maximized.
 
-- **Events module required** – Since `FFASpawnPoints` relies on `Events` and `UI`, you **must** use the [Events module](../events/README.md) for all game event subscription and **must not** implement or export any Battlefield Portal event handler functions in your code. If you export your own `OnPlayerJoinGame`, `OnGameModeStarted`, etc., they will conflict and cause undefined behavior. See [Events — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
-- **Rare Spawn Overlaps** – In rare cases, especially with many players and few spawn points, players may spawn on top of each other if no safe spawn point is found within `maxSpawnCandidates` iterations. Consider adjusting `maxSpawnCandidates` via the `FFASpawnPoints.initialize()` options or adding more spawn points to mitigate this.
-- **UI Input Mode** – The system delegates automatic `mod.EnableUIInputMode()` management to the `UI` module. Be careful not to conflict with other UI systems that do not use the `UI` module that also control input mode.
-- **HQ Disabling** – The system automatically disables both team HQs during initialization. If you need team-based spawning elsewhere, you'll need to re-enable HQs manually (but you really should not be mixing this with other systems unless you know what you are doing).
-- **Spawn Point Cleanup** – Spawn points created during initialization are not automatically cleaned up. This is typically fine as they persist for the duration of the match.
+Key features include:
+
+- **Zero-Allocation Operations** – All read, write, and math functions operate directly on pre-allocated `Float32Array` buffers with zero runtime object allocations.
+- **4D Quaternion Stride 4 Helpers** – Fast cloning and extraction (`toQuaternion`), writing (`toSlice`, `copySlice`), identity initialization (`setIdentity`), direct array-to-array Hamilton quaternion multiplication (`multiplyToSlice`), dot products (`dotSliceAndQuaternion`), length queries (`lengthSquared`), and equality testing (`equalsQuaternion`).
+- **Uniform API Standard** – Shared across `Spatial` and other performance-critical modules in `bf6-portal-utils`.
+
+---
+
+## Module: interleaved-vectors
+
+The `InterleavedVectors` namespace provides low-level, high-performance utilities for working with contiguous Structure of Arrays (SoA) in flat `Float32Array` buffers for 3D vector coordinates (stride 3: `x, y, z`) in Battlefield 6 Portal experiences.
+
+In the memory-constrained Battlefield Portal QuickJS environment, managing hundreds of discrete JavaScript vector objects causes heap fragmentation and garbage collection pressure. By storing 3D coordinates contiguously inside flat TypedArrays, memory overhead is minimized and spatial cache locality is maximized.
+
+Key features include:
+
+- **Zero-Allocation Operations** – All read, write, and math functions operate directly on pre-allocated `Float32Array` buffers with zero runtime object allocations.
+- **3D Vector Stride 3 Helpers** – Fast copying (`toVector`, `toSlice`, `copySlice`), uniform/component setting (`setSlice`), addition (`addSliceAndVectorToSlice`, `addVectorsToSlice`, `addSliceAndVectorToVector`, `addScaledSliceOntoSlice`), subtraction (`subtractVectorFromSliceToVector`), scalar multiplication (`multiplyVectorToSlice`), in-place scaling (`scaleSlice`), dot products (`dotSlices`, `dotSliceAndVector`), Euclidean lengths (`length`, `lengthSquared`), distance queries (`sliceToSliceDistanceSquared`, `sliceToVectorDistanceSquared`), cross products (`crossToSlice`, `crossToVector`), normalization (`normalizeToVector`), Hadamard multiplication (`hadamardMultiplyToSlice`, `hadamardMultiplyToVector`), safe Hadamard division (`safeHadamardDivideVectorBySliceToVector`), and equality testing (`equalsVector`).
+- **Uniform API Standard** – Shared across `Spatial`, `Physics`, and other performance-critical modules in `bf6-portal-utils`.
 
 ---
 
 ## Module: logger
 
-This TypeScript `Logger` class removes the biggest Battlefield Portal debugging pain point: until now you could only display strings that were pre-uploaded to the Experience website via a `strings.json` file, and displaying concatenated string with more than 3 parts was tricky, if not impossible. Further, `console.log` is only available for PC users, with a file written to their filesystem. By pairing a lightweight UI window with the `logger.strings.json` character map, this module lets you log any runtime text (errors, telemetry, formatted data, etc.) directly to the screen, even on console builds.
+This TypeScript `Logger` class removes the biggest Battlefield Portal debugging pain point: until now you could only display strings that were pre-uploaded to the Experience website via a `strings.json` file, and displaying concatenated strings with more than 3 parts was tricky, if not impossible. Further, `console.log` is only available for PC users, with a file written to their filesystem. By pairing a lightweight UI window with the `logger.strings.json` character map, this module lets you log any runtime text (errors, telemetry, formatted data, etc.) directly to the screen, even on console builds.
 
 - **Dynamic mode** behaves like a scrolling console, always appending at the bottom and pushing older rows upward.
 - **Static mode** lets you target a specific row index (e.g., keep player position on row 10 while other diagnostics fill lines 0‑9).
 
-> **Note** Since the `Logger` namespace depends on the `UI` module, which depends on the `Events` module **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. Because only one implementation of each Portal event can exist per project (the `Events` module owns those hooks), your mod must subscribe via `Events` only. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ## Usage Patterns
 
-- **Static dashboards** – Pin persistent diagnostics (positions, squad metadata, timers) to precise rows.
+- **Static dashboards** – Pin persistent diagnostics (positions, squad metadata, timers) to precise rows. Multiple writes to the same row in a single tick overwrite each other with zero intermediate rendering overhead.
 - **Dynamic consoles** – Stream verbose traces (button clicks, state transitions, error stacks) without worrying about pre-provisioned strings.
 - **Multiple Instances** – Keep both modes active: e.g., static logger on the left for gauges, dynamic logger on the right for realtime traces.
-- **Performance considerations** – For long text messages or tall dynamic loggers, use `logAsync()` instead of `log()`. Long text can result in many 3-character Text UI Widgets, and in dynamic mode, moving all existing rows upward requires many UI operations. By using `logAsync()` without `await`, the logging operation becomes non-blocking by being sent to the microtask queue, preventing frame drops or execution delays.
+- **Zero-Allocation Batching Pipeline** – All `log()` calls are non-blocking and automatically batched in memory until `Events.OnTickEnd` (priority 90). The entire batch is rendered in a single pass right before `UI.flush()` (priority 100), eliminating intermediate layout and text measuring costs.
 
 ### Example
 
@@ -683,22 +944,18 @@ export async function OnPlayerDeployed(eventPlayer: mod.Player): Promise<void> {
         staticLogger = new Logger(eventPlayer, {
             staticRows: true,
             visible: true,
-            anchor: mod.UIAnchor.TopLeft,
+            anchor: UI.Anchor.TopLeft,
             width: 600,
         });
-        dynamicLogger = new Logger(eventPlayer, { staticRows: false, visible: true, anchor: mod.UIAnchor.TopRight });
+        dynamicLogger = new Logger(eventPlayer, { staticRows: false, visible: true, anchor: UI.Anchor.TopRight });
     }
 
-    // While logAsync is preferred, you can still use log() for short messages if order guarantees matter.
     dynamicLogger?.log(`Player: ${mod.GetObjId(player)}`);
     dynamicLogger?.log(`Team: ${mod.GetObjId(mod.GetTeam(player))}`);
     dynamicLogger?.log(`Hello @ world $${(12345.6789).toFixed(2)}!!`);
 
-    // For long messages or performance-critical paths, always use logAsync (non-blocking).
-    dynamicLogger?.logAsync(`Very long diagnostic message that will create many UI widgets...`);
-
     while (true) {
-        const position = mod.GetSoldierState(player, mod.SoldierStateVector.GetPosition);
+        const position = mod.GetObjectPosition(player);
 
         const x = mod.XComponentOf(position).toFixed(2);
         const y = mod.YComponentOf(position).toFixed(2);
@@ -717,9 +974,9 @@ export async function OnPlayerDeployed(eventPlayer: mod.Player): Promise<void> {
 
 ## Module: logging
 
-This TypeScript `Logging` class provides a fail-safe logging abstraction for Battlefield Portal experience developers. It abstracts away the logic to log text and errors to an arbitrary logging method in a fail-safe way, with configurable log level filtering. The class can be used directly within a BF6 Portal experience or can be used within other modules to provide consistent, safe logging functionality.
+This TypeScript `Logging` class provides a fail-safe logging abstraction for Battlefield Portal experience developers. It abstracts away the logic to log text and errors to an arbitrary logging function in a fail-safe way, with configurable log level filtering. The class can be used directly within a BF6 Portal experience or can be used within other modules to provide consistent, safe logging functionality.
 
-Key features include fail-safe error handling that prevents logging failures from crashing your mod, configurable log level filtering to control verbosity, optional error message inclusion, support for both synchronous and asynchronous logger functions, and automatic error-to-string conversion that safely handles any error type.
+Key features include fail-safe error handling that prevents logging failures from crashing your mod, configurable log level filtering to control verbosity, optional error message inclusion in the formatted text, support for both synchronous and asynchronous logging functions, automatic error-to-string conversion for that suffix, and a **second callback argument** so your logging function receives the raw `error` value from `log()` (for example `instanceof Error` checks and `stack` access) independent of `includeRawError`.
 
 ### Example: Direct Usage in Portal Experience
 
@@ -729,7 +986,7 @@ import { Logging } from 'bf6-portal-utils/logging';
 const logging = new Logging('MyMod');
 
 export async function OnGameModeStarted(): Promise<void> {
-    // Set up logging with console.log, minimum log level of Warning, and include errors
+    // Set up logging with console.log, minimum log level of Warning, and include error messages in the text.
     logging.setLogging((text) => console.log(text), Logging.LogLevel.Warning, true);
 
     // Log an info message
@@ -755,33 +1012,32 @@ export async function OnGameModeStarted(): Promise<void> {
 ### Example: Usage Within a Module
 
 ```ts
-import { Logging } from '../logging/index.ts';
+import { Logging } from '../logging';
 
 export namespace MyModule {
     const logging = new Logging('MyModule');
 
-    /**
-     * Re-export LogLevel enum for convenience for controlling logging verbosity.
-     */
+    // Re-export LogLevel enum for convenience for controlling logging verbosity.
     export const LogLevel = Logging.LogLevel;
 
-    /**
-     * Attaches a logger and defines a minimum log level and whether to include the runtime error in the log.
-     * @param log - The logger function to use. Pass undefined to disable logging.
-     * @param logLevel - The minimum log level to use.
-     * @param includeError - Whether to include the runtime error in the log.
-     */
     export function setLogging(
-        log?: (text: string) => Promise<void> | void,
+        log?: (text: string, error?: unknown) => Promise<void> | void,
         logLevel?: Logging.LogLevel,
-        includeError?: boolean
+        includeRawError?: boolean
     ): void {
-        logging.setLogging(log, logLevel, includeError);
+        logging.setLogging(log, logLevel, includeRawError);
     }
 
     export function doSomething(): void {
-        // Use the logging internally
         logging.log('Doing something', Logging.LogLevel.Info);
+    }
+
+    export function trySomething(): void {
+        try {
+            somethingThatMightFail();
+        } catch (error: unknown) {
+            logging.log('Something failed', Logging.LogLevel.Error, error);
+        }
     }
 }
 
@@ -799,7 +1055,7 @@ import { Logging } from 'bf6-portal-utils/logging';
 const logging = new Logging('MyMod');
 
 export async function OnGameModeStarted(): Promise<void> {
-    // Set up logging
+    // Set up logging (second callback arg is omitted when log() had no error)
     logging.setLogging((text) => console.log(text), Logging.LogLevel.Info);
 
     // Log messages at different levels
@@ -818,19 +1074,23 @@ import { Logging } from 'bf6-portal-utils/logging';
 const logging = new Logging('MyMod');
 
 export async function OnGameModeStarted(): Promise<void> {
-    // Enable error inclusion
+    // includeRawError: append a safe string form to `text`; second arg is always the raw value from log()
     logging.setLogging(
-        (text) => console.log(text),
+        (text, err) => {
+            console.log(text);
+
+            if (err instanceof Error) {
+                console.log(err.stack ?? err);
+            }
+        },
         Logging.LogLevel.Warning,
-        true // includeError = true
+        true // also append " - Error: …" to `text`
     );
 
     try {
         riskyOperation();
     } catch (error) {
-        // Error will be appended to the log message
         logging.log('Operation failed', Logging.LogLevel.Error, error);
-        // Output: <MyMod> Operation failed - Error: [error message]
     }
 }
 ```
@@ -843,7 +1103,7 @@ import { Logging } from 'bf6-portal-utils/logging';
 const logging = new Logging('MyMod');
 
 export async function OnGameModeStarted(): Promise<void> {
-    logging.setLogging((text) => console.log(text), Logging.LogLevel.Warning);
+    logging.setLogging((text) => console.log(text), Logging.LogLevel.Warning); // error param omitted when unused
 
     // Avoid expensive string building if logging won't occur
     if (logging.willLog(Logging.LogLevel.Debug)) {
@@ -860,9 +1120,9 @@ import { Logging } from 'bf6-portal-utils/logging';
 
 const logging = new Logging('MyMod');
 
-async function asyncLogger(text: string): Promise<void> {
+async function asyncLogger(text: string, error?: unknown): Promise<void> {
     // Simulate async logging (e.g., sending to external service)
-    await someAsyncLoggingService.log(text);
+    await someAsyncLoggingService.log(text, error);
 }
 
 export async function OnGameModeStarted(): Promise<void> {
@@ -887,8 +1147,8 @@ export async function OnGameModeStarted(): Promise<void> {
 
     logging.log('This will be logged', Logging.LogLevel.Info);
 
-    // Disable logging by passing undefined
-    logging.setLogging(undefined);
+    // Disable logging by passing undefined (or null)
+    logging.setLogging(null);
 
     logging.log('This will not be logged', Logging.LogLevel.Info);
 }
@@ -896,7 +1156,9 @@ export async function OnGameModeStarted(): Promise<void> {
 
 ## Known Limitations & Caveats
 
-- **Error String Conversion Limitations** – While the class safely converts errors to strings, complex error objects may lose information in the conversion process. Only the error message (for `Error` instances) or the result of `String()` conversion is preserved. Also, while a logger like `console.log` can easily accept complex and log error objects or strings, other UI loggers (like the `Logger` module) may not, so consider `includeError = false` unless necessary.
+- **Error String Conversion vs Raw Value** – The suffix appended to `text` when `includeRawError` is true uses `_safeErrorToString()` only (message for `Error`, else `String()`, with fallbacks). Rich fields are not serialized there. Use the callback’s second argument when you need the original thrown value, `Error.stack`, or custom error types.
+
+- **Sinks That Only Accept Strings** – If your backend or UI logger cannot accept arbitrary `unknown` values, ignore the second parameter and rely on `text` only; set `includeRawError = true` if you need a short string summary on the line.
 
 - **Async Logger Timing** – If a logger function returns a `Promise`, the `log()` method does not await it. The promise is handled in a fire-and-forget manner to prevent blocking. This means you cannot rely on the log operation completing before your code continues.
 
@@ -904,7 +1166,7 @@ export async function OnGameModeStarted(): Promise<void> {
 
 ## Module: map-detector
 
-This TypeScript `MapDetector` class enables Battlefield Portal experience developers to detect the current map by analyzing the coordinates of Team 1's Headquarters (HQ). This utility is necessary because `mod.IsCurrentMap` from the official Battlefield Portal API is currently broken and unreliable.
+This TypeScript `MapDetector` class enables Battlefield Portal experience developers to detect the current map by analyzing the coordinates of Team 1's Headquarters (HQ) or a custom spatial marker object. This utility is necessary because `mod.IsCurrentMap` from the official Battlefield Portal API is currently broken and unreliable.
 
 ### Example
 
@@ -913,9 +1175,12 @@ import { MapDetector } from 'bf6-portal-utils/map-detector';
 import { Events } from 'bf6-portal-utils/events';
 
 // If your experience uses custom spatial data that moves HQ1 on certain maps, set the
-// expected HQ1 coordinates for each affected map here (after imports, not in an event handler).
+// expected HQ1 coordinates for each affected map here (after imports, not in an event handler):
 MapDetector.setCoordinates(MapDetector.Map.Downtown, { x: -1044, y: 122, z: 220 });
 MapDetector.setCoordinates(MapDetector.Map.Eastwood, { x: -195, y: 231, z: -41 });
+
+// Alternatively, if you use a spatial marker object placed at unique coordinates per map:
+// MapDetector.setMarkerObjectId(123);
 
 Events.OnGameModeStarted.subscribe(() => {
     // Optional: Configure logging for map detection debugging
@@ -938,35 +1203,14 @@ Events.OnGameModeStarted.subscribe(() => {
 });
 ```
 
-## Supported Maps
-
-The `MapDetector` namespace supports detection of the following maps via the `MapDetector.Map` enum:
-
-- Area 22B
-- Blackwell Fields
-- **Contaminated** (see [Missing Maps in Native Enum](#missing-maps-in-native-enum))
-- Defense Nexus
-- Downtown
-- Eastwood
-- Empire State
-- Golf Course
-- Iberian Offensive
-- Liberation Peak
-- Manhattan Bridge
-- Marina
-- Mirak Valley
-- New Sobek City
-- Operation Firestorm
-- Portal Sandbox
-- Redline Storage
-- Saints Quarter
-- Siege of Cairo
-
----
-
 ## Custom map spatial layouts
 
-If your experience uses **custom spatial data** that moves Team 1's HQ from its default position on one or more maps, detection would otherwise fail. Call **`MapDetector.setCoordinates(map, coordinates)`** for **each map** where HQ1 has a non-default position. Do this **at the top of your file** (after imports), **not** inside an event handler—your code does not know the current map until the detector runs, so you must pre-configure every map whose layout you have changed. Pass the (x, y, z) position of HQ1 for that layout; only the **integer parts** of the coordinates are used when matching (decimal parts are ignored). That is sufficient because HQ positions differ widely between maps, so integer comparison is enough to distinguish them.
+If your experience uses **custom spatial data** that moves Team 1's HQ from its default position on one or more maps, detection would otherwise fail. You have two options:
+
+1. **Set Custom Coordinates** – Call **`MapDetector.setCoordinates(map, coordinates)`** for **each map** where HQ1 has a non-default position.
+2. **Use a Spatial Marker Object** – Call **`MapDetector.setMarkerObjectId(id)`** to specify a spatial object ID whose position will be read via `mod.GetSpatialObject(id)` and matched against known map coordinates instead of HQ1.
+
+Do this **at the top of your file** (after imports), **not** inside an event handler—your code does not know the current map until the detector runs, so you must pre-configure every map whose layout you have changed. Pass the (x, y, z) position for that layout; coordinates are rounded to integers and clamped to `[-32,768, 32,767]`. That is sufficient because positions differ widely between maps, so integer comparison is enough to distinguish them.
 
 ---
 
@@ -974,17 +1218,48 @@ If your experience uses **custom spatial data** that moves Team 1's HQ from its 
 
 ### Missing Maps in Native Enum
 
-The map **"Contaminated"** is not available in the native `mod.Maps` enum (it is missing from the Battlefield Portal API). As a result:
+The map **"Bellum1988's Operation Metro"** is not available in the native `mod.Maps` enum (it is missing from the Battlefield Portal API). As a result:
 
-- `MapDetector.currentNativeMap()` will return `undefined` for Contaminated.
-- `MapDetector.isCurrentNativeMap()` will always return `false` for Contaminated when checking against any `mod.Maps` value.
-- `MapDetector.currentMap()` and `MapDetector.isCurrentMap()` **behave correctly for Contaminated**.
+- `MapDetector.currentNativeMap()` will return `null` for that map.
+- `MapDetector.isCurrentNativeMap()` will always return `false` for that map when checking against any `mod.Maps` value.
+- `MapDetector.currentMap()` and `MapDetector.isCurrentMap()` **behave correctly for that map**.
 
-Use `MapDetector.Map` enum values and `isCurrentMap()` when working with Contaminated (or for consistency, for all maps).
+Use `MapDetector.Map` enum values and `isCurrentMap()` when working with that map (or for consistency, for all maps).
 
 ### Detection Method
 
-The detector identifies maps by comparing the **integer parts** of Team 1's HQ position (x, y, z) to the known coordinates for each map; decimal parts are ignored. If custom spatial data has moved HQ1 on certain maps, call `setCoordinates()` at the top of your file for each affected map with the new HQ1 position so detection continues to work.
+The detector identifies maps by comparing the **integer parts** of the target position (Team 1's HQ by default, or the spatial marker object if `setMarkerObjectId()` is used) (x, y, z) to the known coordinates for each map; decimal parts are ignored. If custom spatial data has moved HQ1 on certain maps, call `setCoordinates()` at the top of your file for each affected map, or use `setMarkerObjectId()` so detection continues to work.
+
+---
+
+## Module: mod-extensions
+
+The `ModExtensions` namespace provides helper functions for resolving opaque event payloads (such as `mod.DamageType`, `mod.DeathType`, and `mod.WeaponUnlock`) to their corresponding Battlefield Portal enum values (`mod.PlayerDamageTypes`, `mod.PlayerDeathTypes`, `mod.Gadgets`, and `mod.Weapons`).
+
+### Example
+
+```ts
+import { ModExtensions } from 'bf6-portal-utils/mod-extensions';
+import { Events } from 'bf6-portal-utils/events';
+
+Events.OnPlayerDied.subscribe((event: mod.OnPlayerDiedEvent) => {
+    // Resolve opaque event deathType to the PlayerDeathTypes enum value
+    const deathType = ModExtensions.getPlayerDeathType(event.deathType);
+
+    if (deathType === mod.PlayerDeathTypes.Headshot) {
+        // Headshot-specific logic
+    }
+});
+
+Events.OnPlayerDamaged.subscribe((event: mod.OnPlayerDamagedEvent) => {
+    // Resolve opaque event damageType to the PlayerDamageTypes enum value
+    const damageType = ModExtensions.getPlayerDamageType(event.damageType);
+
+    if (damageType === mod.PlayerDamageTypes.Explosion) {
+        // Explosion-specific logic
+    }
+});
+```
 
 ---
 
@@ -996,9 +1271,9 @@ The detector tracks soldier state transitions for each player independently, cou
 
 By default, the detector monitors `mod.SoldierStateBool.IsInteracting`, which is the most user-friendly option because the interact state goes `true` for 1 tick even when there is no object that can be interacted with nearby. This makes it ideal for detecting multi-click sequences without requiring physical interaction points, and is useful because there is no keybind Portal experience developers can hook into to open up a custom UI.
 
-Key features include instance-based construction with per-instance configuration, **automatic event wiring** via the `Events` module (the detector subscribes to `OngoingPlayer`, `OnPlayerDeployed`, `OnPlayerUndeploy`, and `OnPlayerLeaveGame` internally), and configurable logging. Soldier state is only read when the player is deployed, so the admin error log is not flooded. Each detector can be enabled or disabled independently. Callbacks can be sync or async; **asynchronous callbacks are preferred** because synchronous callbacks block the entire `OngoingPlayer` event stack. Keep sync callbacks short if you use them.
+Key features include instance-based tracking via an ID system, **automatic event wiring** via the `Events` module (the detector subscribes to `OnTickStart`, `OnPlayerDeployed`, `OnPlayerUndeploy`, and `OnPlayerLeaveGame` internally), and configurable logging. Sampling soldier input states at the start of each frame (`Events.OnTickStart`) ensures responsive click detection before other event handlers run. Soldier state is only continuously read when the player is deployed, so the admin error log is not flooded. Each detector can be enabled or disabled independently. Callbacks can be sync or async; **asynchronous callbacks are preferred** because synchronous callbacks block the entire event stack. Keep sync callbacks short if you use them.
 
-> **Note** You **must** use the `Events` module as your only mechanism to subscribe to game events. Do not implement or export any Battlefield Portal event handler functions (`OngoingPlayer`, `OnPlayerDeployed`, `OnPlayerDied`, etc.) in your code. The `Events` module subscribes to those events internally and only one implementation of each can exist per project, so it owns those hooks. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -1012,8 +1287,8 @@ Events.OnPlayerJoinGame.subscribe((player: mod.Player) => {
     const playerId = mod.GetObjId(player);
 
     // Create a detector for this player. Event wiring is automatic.
-    // Prefer async callbacks—sync callbacks block the entire OngoingPlayer event stack.
-    new MultiClickDetector(
+    // Prefer async callbacks—sync callbacks block the entire OnTickStart event stack.
+    const detectorId = MultiClickDetector.create(
         player,
         async () => {
             console.log(`Player ${playerId} performed multi-click!`);
@@ -1028,24 +1303,6 @@ Events.OnPlayerJoinGame.subscribe((player: mod.Player) => {
 }
 ```
 
-## Event Wiring & Lifecycle
-
-### Event subscription (Events module only)
-
-You must **not** implement or export any Battlefield Portal event handler functions. The detector subscribes internally to `Events.OngoingPlayer`, `Events.OnPlayerDeployed`, `Events.OnPlayerUndeploy`, and `Events.OnPlayerLeaveGame`. Use the Events module for your own logic (e.g. `Events.OnPlayerJoinGame.subscribe(...)` to create detectors). There are no required event handlers for you to wire—event handling is automatic.
-
-### Lifecycle Flow
-
-1. Import `MultiClickDetector` and `Events`; subscribe to game events only via `Events`.
-2. Optionally configure logging with `MultiClickDetector.setLogging()` (recommended during development).
-3. Create detector instances for players in your event subscribers (e.g. `Events.OnPlayerJoinGame.subscribe((player) => { new MultiClickDetector(player, callback, options); })`). No need to call `handleOngoingPlayer` or `pruneInvalidPlayers`—the detector subscribes to the required events internally.
-4. The module automatically:
-    - Gates detector logic by deployment: soldier state is only read when the player is deployed (`OnPlayerDeployed` sets a player-level flag; `OnPlayerUndeploy` clears it). Each detector's own `enable()`/`disable()` state is **not** overwritten by deploy or undeploy.
-    - Tracks soldier state transitions via `OngoingPlayer` (only for deployed players)
-    - Removes all detectors for that player when they leave (`OnPlayerLeaveGame`)
-    - For each enabled detector (when the player is deployed), counts state changes within the time window, resets sequences that exceed it, and invokes the callback (via `CallbackHandler`) when the required number of state changes is detected
-5. You may call call `detector.destroy()` when you no longer need a specific detector; otherwise cleanup is automatic on player leave.
-
 ### Example: Multiple Detectors per Player
 
 ```ts
@@ -1053,13 +1310,13 @@ import { MultiClickDetector } from 'bf6-portal-utils/multi-click-detector';
 import { Events } from 'bf6-portal-utils/events';
 
 Events.OnPlayerJoinGame.subscribe((player: mod.Player) => {
-    new MultiClickDetector(player, () => openCustomMenu(player), {
+    MultiClickDetector.create(player, () => openCustomMenu(player), {
         soldierState: mod.SoldierStateBool.IsSprinting,
         requiredClicks: 4,
         windowMs: 1_500,
     });
 
-    new MultiClickDetector(player, () => activateSpecialAbility(player), {
+    MultiClickDetector.create(player, () => activateSpecialAbility(player), {
         soldierState: mod.SoldierStateBool.IsInteracting,
         requiredClicks: 3,
         windowMs: 1_000,
@@ -1074,7 +1331,7 @@ import { MultiClickDetector } from 'bf6-portal-utils/multi-click-detector';
 import { Events } from 'bf6-portal-utils/events';
 
 Events.OnPlayerDeployed.subscribe((player: mod.Player) => {
-    new MultiClickDetector(player, async () => {
+    MultiClickDetector.create(player, async () => {
         await loadPlayerData(player);
         await openCustomUI(player);
     });
@@ -1112,7 +1369,232 @@ The detector can monitor any soldier state boolean from `mod.SoldierStateBool`, 
 
 ## Module: performance-stats
 
-It is not recommended to use this module in its current state as it lacks core functionality to return meaningful metrics.
+The `PerformanceStats` namespace tracks server tick rate and script timeout lag and exposes getters suitable for real-time compute scaling or displaying smoothed metrics in a UI. When the game mode starts, it subscribes to `Events.OnTickStart` to record timestamps at the very beginning of each frame for accurate inter-tick delta calculations and starts a 1-second sampling window to compute smoothed tick rate (Hz) and lag (ms). When the server is under stress—e.g. timeout lag spikes over 100ms or tick rate drops below 25Hz—it logs warnings via the configured logger so you can see spikes in the UI or logs without polling raw values yourself.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Example
+
+```ts
+import { PerformanceStats } from 'bf6-portal-utils/performance-stats';
+import { Events } from 'bf6-portal-utils/events';
+import { Timers } from 'bf6-portal-utils/timers';
+
+// Optional: show spike warnings in UI or console
+PerformanceStats.setLogging((text) => console.log(text), PerformanceStats.LogLevel.Warning);
+
+Events.OnGameModeStarted.subscribe(() => {
+    // Periodic UI update with smoothed metrics (stable for display)
+    Timers.setInterval(() => {
+        const hz = PerformanceStats.getSmoothedTickRate();
+        const lagMs = PerformanceStats.getSmoothedTimeoutLagMs();
+        updatePerformancePanel(hz, lagMs);
+    }, 1_000);
+});
+
+// Scale expensive logic when the server is bogged down
+Events.OngoingPlayer.subscribe((player: mod.Player) => {
+    const health = PerformanceStats.getSpotHealthFactor();
+    if (health < 0.8) {
+        // Reduce check frequency or skip non-critical work
+        return;
+    }
+    doExpensivePerPlayerWork(player);
+});
+```
+
+---
+
+## Module: player-locations
+
+`PlayerLocations` is a high-performance, **Zero-Garbage-Collection (Zero-GC)** TypeScript spatial query engine built specifically for Battlefield 6 Portal experiences running an embedded QuickJS engine on a C++ server backend.
+
+In Battlefield 6 Portal, querying player coordinates via engine Foreign Function Interface (FFI) calls (such as `mod.GetSoldierState`) in hot gameplay loops introduces noticeable C++ FFI overhead and garbage collection pressure. `PlayerLocations` eliminates this bottleneck by querying player positions once per tick at the start of the frame (`Events.OnTickStart`), transforming world coordinates into scaled integer representations inside cache-dense contiguous Typed Arrays, and providing a comprehensive suite of spatial, proximity, directional, and nearest-neighbor queries entirely within local JavaScript memory for all subsequent logic in the tick.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Example
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+import { Events } from 'bf6-portal-utils/events';
+
+// Example: 2.5D Capture Zone Check (Radius: 15m, Y bounds: 10m to 30m)
+const CAPTURE_ZONE = {
+    x: 100.0,
+    z: -250.0,
+    radius: 15.0,
+    minY: 10.0,
+    maxY: 30.0,
+};
+
+// Initialize tracking once the server and match are ready
+Events.OnGameModeStarted.subscribe(() => {
+    PlayerLocations.initialize();
+});
+
+Events.OnTickStart.subscribe(() => {
+    // Pure count query: zero memory allocations, zero array writes
+    const playersInZoneCount = PlayerLocations.findPlayersInCylinder(
+        CAPTURE_ZONE.x,
+        CAPTURE_ZONE.z,
+        CAPTURE_ZONE.radius,
+        CAPTURE_ZONE.minY,
+        CAPTURE_ZONE.maxY
+    );
+
+    if (playersInZoneCount > 0) {
+        // Find closest active player to the center of the objective
+        const closestId = PlayerLocations.getClosestPlayerId(CAPTURE_ZONE.x, 20.0, CAPTURE_ZONE.z);
+        if (closestId !== undefined) {
+            const player = PlayerLocations.getPlayer(closestId);
+            // ... execute objective scoring or UI updates ...
+        }
+    }
+});
+```
+
+### Pattern 1: Moving Payload / Dynamic Area Subscription
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+
+// Track players entering/exiting a moving payload vehicle's aura
+const payloadZoneHandle = PlayerLocations.onSphere(
+    0,
+    0,
+    0,
+    15.0,
+    (player, playerId) => {
+        console.log(`Player ${playerId} is now pushing the payload!`);
+        // Grant ammo aura / buff
+    },
+    (player, playerId) => {
+        console.log(`Player ${playerId} left payload aura.`);
+        // Remove ammo aura / buff
+    }
+);
+
+// On each payload movement step or waypoint progression:
+export function onPayloadMoved(newX: number, newY: number, newZ: number, isStopped: boolean): void {
+    // Dynamically shift coordinates and double radius when stopped (0 heap allocations)
+    payloadZoneHandle.update(newX, newY, newZ, isStopped ? 30.0 : 15.0);
+}
+
+// When the match ends or payload is destroyed:
+export function onRoundEnd(): void {
+    payloadZoneHandle.unsubscribe();
+}
+```
+
+### Pattern 2: High-Altitude Flight Ceiling Alert
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+
+const FLIGHT_CEILING_Y = 800.0;
+
+// Trigger warning when crossing above or returning below flight ceiling
+const unsubCeiling = PlayerLocations.onCrossAltitude(
+    FLIGHT_CEILING_Y,
+    (pilot, playerId) => {
+        // Play warning alarm sound or HUD warning
+    },
+    (pilot, playerId) => {
+        // Clear HUD warning
+    }
+);
+```
+
+### Pattern 3: Dynamic VIP / King of the Hill Leader Tracking
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+
+// Track when a new player takes the highest altitude lead
+const unsubLeader = PlayerLocations.onHighestPlayerChanged((newHighest, prevHighest, newHighestId, prevHighestId) => {
+    if (prevHighestId !== undefined) {
+        console.log(`Player ${newHighestId} overtook player ${prevHighestId} for highest altitude!`);
+    }
+    // Update VIP scoreboard or 3D World Icon
+});
+```
+
+### Pattern 4: Nearest Teammate Revive / Medic Aura
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+import { Vectors } from 'bf6-portal-utils/vectors';
+
+const scratchPos: Vectors.Vector3 = { x: 0, y: 0, z: 0 };
+
+export function findNearestTeammate(medic: mod.Player): number | undefined {
+    const medicPos = PlayerLocations.getPosition(medic, scratchPos);
+    if (!medicPos) return undefined;
+
+    const medicTeam = mod.GetPlayerTeam(medic);
+    const medicId = PlayerLocations.getPlayerId(medic);
+
+    // Filter predicate executes inside single linear pass with (candidatePlayer, candidateId)
+    return PlayerLocations.getClosestPlayerId(medicPos.x, medicPos.y, medicPos.z, (candidatePlayer, candidateId) => {
+        return mod.GetPlayerTeam(candidatePlayer) === medicTeam && candidateId !== medicId;
+    });
+}
+```
+
+### Pattern 5: Irregular Polygon Objective / Prismatic Capture Zone
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+
+// Define a concave, irregular compound perimeter on the XZ ground plane
+const COMPOUND_ZONE = [
+    { x: 100.0, z: 100.0 },
+    { x: 250.0, z: 120.0 },
+    { x: 280.0, z: 200.0 },
+    { x: 200.0, z: 260.0 },
+    { x: 80.0, z: 180.0 },
+];
+
+// Subscribe to entry/exit transitions within the 2.5D polygon column (0m to 50m altitude)
+const compoundHandle = PlayerLocations.onPrism(
+    COMPOUND_ZONE,
+    0.0,
+    50.0,
+    (player, playerId) => {
+        console.log(`Player ${playerId} entered the compound capture zone.`);
+        // Begin capture progress
+    },
+    (player, playerId) => {
+        console.log(`Player ${playerId} exited the compound capture zone.`);
+        // Halt capture progress
+    }
+);
+
+// Query all active players inside the compound on demand
+const defendersBuffer: number[] = [];
+export function getDefendersInCompound(): number {
+    return PlayerLocations.findPlayersInPrism(COMPOUND_ZONE, 0.0, 50.0, undefined, defendersBuffer) ?? 0;
+}
+```
+
+### Pattern 6: High-Altitude Airstrike Warning
+
+```ts
+import { PlayerLocations } from 'bf6-portal-utils/player-locations';
+
+const pilotsBuffer: mod.Player[] = [];
+
+export function warnHighAltitudePilots(minAltitudeMeters: number): void {
+    // Instantly queries Y-axis sorted bounds and populates pilot objects
+    const count = PlayerLocations.findPlayersAbove(minAltitudeMeters, undefined, undefined, pilotsBuffer);
+
+    for (let i = 0; i < count; ++i) {
+        const pilot = pilotsBuffer[i];
+        // Display SAM lock warning UI or sound
+    }
+}
+```
 
 ---
 
@@ -1122,7 +1604,7 @@ The `PlayerUndeployFixer` namespace is a small helper that automatically subscri
 
 No setup is required beyond importing the module; subscribing and triggering are handled internally.
 
-> **Note** You **must** use the `Events` module as your only mechanism to subscribe to game events. Do not implement or export any Battlefield Portal event handler functions (`OnPlayerDied`, `OnPlayerUndeploy`, `OnPlayerDeployed`, etc.) in your code. The `Events` module owns those hooks and this module relies on it; only one implementation of each event handler can exist per project. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -1141,13 +1623,140 @@ PlayerUndeployFixer.setLogging((text) => console.log(text), PlayerUndeployFixer.
 
 ---
 
+## Module: portal-gadget
+
+This TypeScript `PortalGadget` namespace provides a high-level API for Battlefield 6 Portal's Portal Gadget laser behavior. It captures player state at fire start/stop so your handlers get a stable snapshot (`isZooming` plus a lazy `getTarget()` function), and it abstracts the undocumented laser origin/angle offsets for both zoomed and hip-fired states.
+
+The module also exposes `PortalGadget.getLaserTarget(player)` so you can query the current laser target on demand, independent of fire events. Internally, laser targeting uses the `Raycast` module and handles asynchronous hit/miss routing for you.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Example
+
+```ts
+import { PortalGadget } from 'bf6-portal-utils/portal-gadget';
+import { Events } from 'bf6-portal-utils/events';
+
+PortalGadget.setLogging((text) => console.log(text), PortalGadget.LogLevel.Warning);
+
+const unsubscribeFireStart = PortalGadget.onFireStart(async (player, isZooming, getTarget) => {
+    const target = await getTarget();
+
+    if (!target) return;
+
+    console.log(
+        `Portal Gadget laser started ${isZooming ? 'zoom-firing' : 'hip-firing'} at: ${mod.XComponentOf(target)}, ${mod.YComponentOf(target)}, ${mod.ZComponentOf(target)}`
+    );
+});
+
+const unsubscribeFireStop = PortalGadget.onFireStop(async (player, isZooming, getTarget) => {
+    const target = await getTarget();
+
+    if (!target) return;
+
+    console.log(
+        `Portal Gadget laser stopped ${isZooming ? 'zoom-firing' : 'hip-firing'} at: ${mod.XComponentOf(target)}, ${mod.YComponentOf(target)}, ${mod.ZComponentOf(target)}`
+    );
+});
+
+Events.OnGameModeEnded.subscribe(() => {
+    unsubscribeFireStart();
+    unsubscribeFireStop();
+});
+```
+
+### Example: On-Demand Laser Query
+
+```ts
+import { PortalGadget } from 'bf6-portal-utils/portal-gadget';
+import { Timers } from 'bf6-portal-utils/timers';
+import type { Vectors } from 'bf6-portal-utils/vectors';
+
+const unsubscribe = PortalGadget.onFireStart(async (player, isZooming, getTarget) => {
+    unsubscribe(); // Immediately unsubscribe, so the event is a "once".
+
+    const points: Vectors.Vector3[] = [];
+
+    // Capture points at 500ms intervals until we have 10 valid points, then draw them.
+    const timer = Timers.setInterval(async () => {
+        const target = await PortalGadget.getLaserTarget(player);
+
+        if (!target) return;
+
+        points.push(target);
+
+        if (points.length >= 10) {
+            Timers.clearInterval(timer);
+            drawPoints(points); // Example function that can draw the points with WorldIcons.
+        }
+    }, 500);
+});
+```
+
+---
+
+## Module: quaternions
+
+The `Quaternions` namespace provides a high-performance, zero-allocation 4D Hamiltonian quaternion mathematics library for Battlefield 6 Portal. Quaternions represent 3D orientations and rotations without the gimbal lock, interpolation anomalies, or computational overhead associated with Euler angles and 3x3 rotation matrices.
+
+Key features include:
+
+- **Transparent Quaternion Type** – Plain `{ w: number, x: number, y: number, z: number }` structures where `w` is the real scalar component.
+- **Zero-Allocation `out` Parameters** – Every transformative operation accepts an optional `out?: Quaternion` destination to eliminate heap allocations and GC spikes in active 60 Hz game loops.
+- **Euler (ZYX Order) Conversions** – Pristine conversions to and from Euler pitch, yaw, and roll in radians matching Frostbite/Godot coordinate conventions.
+- **Arbitrary-Axis Rotations** – Fast construction from any 3D unit axis and angle via `fromAxisAngle()`.
+- **Vector Rotation** – Rotate any `Vectors.Vector3` in 3D space with zero intermediate heap allocations.
+- **Spherical Linear Interpolation (SLERP)** – Constant-speed smooth rotational interpolation between orientations.
+- **Compound Multiplication & Inversion** – Hamiltonian product (`multiply`) and quaternion conjugation (`conjugate`).
+
+### 1. Rotating a 3D Offset Around an Arbitrary Axis
+
+```ts
+import { Quaternions } from 'bf6-portal-utils/quaternions';
+import { Vectors } from 'bf6-portal-utils/vectors';
+
+// Pre-allocate scratch instances for zero-allocation reuse
+const rot: Quaternions.Quaternion = { w: 1, x: 0, y: 0, z: 0 };
+const offset: Vectors.Vector3 = { x: 5, y: 0, z: 0 };
+const rotatedOffset: Vectors.Vector3 = { x: 0, y: 0, z: 0 };
+
+// Rotate 90 degrees around the Y (up) axis into pre-allocated rot
+Quaternions.fromAxisAngle({ x: 0, y: 1, z: 0 }, Math.PI / 2, rot);
+Quaternions.rotateVector(offset, rot, rotatedOffset);
+
+// rotatedOffset is now (0, 0, -5)
+```
+
+---
+
+### 2. Smooth Orientation Interpolation (SLERP)
+
+```ts
+import { Quaternions } from 'bf6-portal-utils/quaternions';
+
+const currentRot: Quaternions.Quaternion = { w: 1, x: 0, y: 0, z: 0 };
+const targetRot = Quaternions.fromEuler(0, Math.PI, 0); // 180-degree yaw
+const smoothedRot: Quaternions.Quaternion = { w: 1, x: 0, y: 0, z: 0 };
+
+export function OnTick(deltaTime: number) {
+    const slerpSpeed = 5.0;
+    const t = Math.min(1.0, slerpSpeed * deltaTime);
+
+    // Smoothly step orientation towards targetRot
+    Quaternions.slerp(currentRot, targetRot, t, smoothedRot);
+    Quaternions.copy(currentRot, smoothedRot);
+}
+```
+
+---
+
 ## Module: raycast
 
-This TypeScript `Raycast` namespace abstracts the raycasting functionality of BF6 Portal and handles attributing raycast hits and misses to the correct raycasts created, since the native functionality does not do this. It subscribes to `OnRayCastHit` and `OnRayCastMissed` via the `Events` module at load time, so hit and miss events are routed automatically—no manual event wiring is required. You pass hit and miss callbacks when calling `Raycast.cast()`, which keeps code readable and modular.
+This TypeScript `Raycast` namespace provides high-throughput, zero-allocation asynchronous raycasting for Battlefield Portal experiences. It manages engine constraints by automatically queueing requests and dispatching them across all available worker slots each tick (1 ray per connected player + 1 player-less global ray per tick), providing deterministic $O(1)$ hit and miss attribution.
 
-The namespace tracks active rays per player, uses geometric distance calculations to match hit points to ray segments, and automatically handles cleanup of expired rays and player states. A time-to-live (TTL) system ensures that old rays don't accumulate in memory, and a sophisticated pending misses resolution system correctly attributes misses to rays when the native API provides ambiguous information. The module uses the `Logging` module for internal logging, allowing you to monitor callback errors and debug raycast behavior.
+The namespace subscribes to `Events.OnTickStart` (to dispatch raycast requests at the beginning of each frame), `Events.OnRayCastHit`, `Events.OnRayCastMissed`, `Events.OnPlayerJoinGame`, and `Events.OnPlayerLeaveGame` at load time—no manual event wiring is required. You simply pass start/end coordinates and callbacks (`onHit`, `onMiss`) to `Raycast.cast()`.
 
-> **Note** Since this module uses the `Events` module for `OnRayCastHit` and `OnRayCastMissed`, you **must** use the `Events` module as your only mechanism to subscribe to game events. Do not implement or export any Battlefield Portal event handler functions (`OnRayCastHit`, `OnRayCastMissed`, `OnPlayerDeployed`, etc.) in your code. The `Events` module owns those hooks and this module relies on it; only one implementation of each event handler can exist per project. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -1158,17 +1767,13 @@ import { Events } from 'bf6-portal-utils/events';
 // Optional: Configure logging for raycast callback error monitoring
 Raycast.setLogging((text) => console.log(text), Raycast.LogLevel.Error);
 
-// Raycast subscribes to OnRayCastHit and OnRayCastMissed via Events automatically.
-// Use Events for your own logic (e.g. when to cast a ray).
-Events.OnPlayerDeployed.subscribe((eventPlayer: mod.Player) => {
-    const playerPosition = mod.GetSoldierState(eventPlayer, mod.SoldierStateVector.GetPosition);
-
-    // Cast a ray from the player's position forward to detect obstacles
-    const forwardDirection = mod.GetSoldierState(eventPlayer, mod.SoldierStateVector.GetDirection);
+Events.OnPlayerDeployed.subscribe((player: mod.Player) => {
+    const playerPosition = mod.GetObjectPosition(player);
+    const forwardDirection = mod.GetSoldierState(player, mod.SoldierStateVector.GetDirection);
     const rayEnd = mod.VectorAdd(playerPosition, mod.VectorScale(forwardDirection, 100));
 
+    // Cast a ray from the player's position forward to detect obstacles
     Raycast.cast(
-        eventPlayer,
         {
             x: mod.XComponentOf(playerPosition),
             y: mod.YComponentOf(playerPosition),
@@ -1179,91 +1784,30 @@ Events.OnPlayerDeployed.subscribe((eventPlayer: mod.Player) => {
             y: mod.YComponentOf(rayEnd),
             z: mod.ZComponentOf(rayEnd),
         },
-        {
-            onHit: async (hitPoint, normal) => {
-                // Called when the ray hits a target
-                // Callbacks can be synchronous or asynchronous (return void or Promise<void>)
+        (hit, hitPoint, normal) => {
+            if (hit && hitPoint && normal) {
                 console.log(`Ray hit at <${hitPoint.x}, ${hitPoint.y}, ${hitPoint.z}>`);
                 console.log(`Surface normal: <${normal.x}, ${normal.y}, ${normal.z}>`);
-            },
-            onMiss: () => {
-                // Called when the ray misses (no target found)
-                // Callbacks can be synchronous or asynchronous (return void or Promise<void>)
+            } else {
                 console.log('Ray missed - no obstacle detected');
-            },
-        }
+            }
+        },
+        { priority: Raycast.Priority.Standard, maxAgeTicks: 5 }
     );
 });
 ```
-
-## Usage Patterns
-
-- **Obstacle Detection** – Cast rays from players to detect walls, terrain, or other obstacles ahead of them.
-- **Line of Sight Checks** – Verify if a player has line of sight to another player or target.
-- **Weapon Targeting** – Use raycasts to determine where a weapon shot would hit before actually firing.
-- **Spawn Point Validation** – Check if a potential spawn location is clear of obstacles before spawning a player.
-- **Interactive Objects** – Detect what objects a player is looking at or pointing at for interaction systems.
-
-### Example: Line of Sight Check
-
-Note: This example is not technically a sufficient LOS check implementation as it does not correctly use the player's eye position, nor does it take into account if the target is without a cone of view of the player's eye direction.
-
-```ts
-import { Raycast } from 'bf6-portal-utils/raycast';
-
-function checkLineOfSight(player: mod.Player, target: mod.Player): Promise<boolean> {
-    return new Promise((resolve) => {
-        const playerPos = mod.GetSoldierState(player, mod.SoldierStateVector.GetPosition);
-        const targetPos = mod.GetSoldierState(target, mod.SoldierStateVector.GetPosition);
-
-        Raycast.cast(player, playerPos, targetPos, {
-            onHit: async (hitPoint) => {
-                // Ray hit something - check if it's the target (within 1 meter)
-                // Since we passed mod.Vector for start/end, hitPoint is also mod.Vector
-                // Callbacks can be async (return Promise<void>) or sync (return void)
-                const dx = mod.XComponentOf(hitPoint) - mod.XComponentOf(targetPos);
-                const dy = mod.YComponentOf(hitPoint) - mod.YComponentOf(targetPos);
-                const dz = mod.ZComponentOf(hitPoint) - mod.ZComponentOf(targetPos);
-                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-                // If hit point is close to target, we have line of sight
-                resolve(distance < 1.0);
-            },
-            onMiss: () => {
-                // Ray missed - no line of sight (obstacle or ray expired)
-                // Callbacks can be async (return Promise<void>) or sync (return void)
-                resolve(false);
-            },
-        });
-    });
-}
-```
-
-## Known Limitations & Caveats
-
-- **Events module required** – You **must** use the [Events module](../events/README.md) for all game event subscription and **must not** implement or export any Battlefield Portal event handler functions. This module subscribes to `OnRayCastHit` and `OnRayCastMissed` via Events. See [Events — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
-
-- **Multiple Simultaneous Rays** – The module can handle multiple rays from the same player, but if many rays are cast in quick succession, the geometric attribution algorithm may become less efficient. In practice, this is rarely an issue since the linear scan is very fast for small ray counts.
-
-- **Miss Attribution Ambiguity** – The native API doesn't distinguish which specific ray missed, so the module uses a counting heuristic. In rare cases with many simultaneous rays, misses may be attributed slightly later than ideal, but they will always be correctly resolved.
-
-- **TTL Precision** – Expired rays trigger their miss callbacks after the TTL expires, not at the exact expiration time. The actual cleanup happens during pruning operations (every 5 seconds) or lazy pruning (before adding new rays).
-
-- **Callback Errors** – Callback errors (both synchronous and asynchronous) are automatically caught and logged (if logging is configured via `Raycast.setLogging()`) to prevent one failing callback from breaking the entire raycast system. Errors are logged at the `Error` log level. If you need additional error handling, implement it inside your callbacks.
-
-- **Player State Cleanup** – While automatic pruning runs every 5 seconds, you may call `Raycast.pruneAllStates()` from a handler subscribed to `Events.OnPlayerLeaveGame` to immediately clean up state when players leave.
-
-- **Distance Epsilon** – The hit attribution uses a 0.5m (`_DISTANCE_EPSILON`) sanity cap for distance comparisons. The algorithm finds the best-fitting ray (lowest error) among all candidates, and only considers rays where the error is within this tolerance. This acts as a sanity check to prevent misattribution rather than a strict matching threshold.
 
 ---
 
 ## Module: scavenger-drop
 
-This TypeScript `ScavengerDrop` class provides functionality for Battlefield Portal experiences to detect when a player scavenges a dead player's kit bag. In Battlefield 6, when a player dies, they drop a bag containing their kit that despawns after approximately 37 seconds. Players can pick up weapons from these bags, but the default behavior does not replenish the scavenging player's ammo. This module allows you to perform custom actions (such as resupplying ammo, displaying messages, or any other logic) when the first player gets within 2 meters of a dead player's body.
+The `ScavengerDrop` namespace provides functionality for Battlefield Portal experiences to detect when a player scavenges a dead player's kit bag. In Battlefield 6, when a player dies, they drop a bag containing their kit that despawns after approximately 37 seconds. Players can pick up weapons from these bags, but the default behavior does not replenish the scavenging player's ammo. This module allows you to perform custom actions (such as resupplying ammo, displaying messages, or any other logic) when the first player gets within 2 meters of a dead player's body.
 
-**Why use ScavengerDrop?** The `ScavengerDrop` module offers significant advantages: automatic detection of players scavenging dead bodies, performance-optimized checking that scales frequency based on proximity, support for custom callbacks to handle scavenging events, and automatic cleanup when drops expire or are scavenged. Ideal for ammo resupply systems, custom loot mechanics, achievement tracking, or any scenario where you need to detect and respond to players picking up dropped kits.
+**Why use ScavengerDrop?** The `ScavengerDrop` module offers significant advantages: automatic detection of players scavenging dead bodies powered by zero-GC reactive spatial tracking (`PlayerLocations.onSphere`), support for custom callbacks to handle scavenging events, and automatic cleanup when drops expire or are scavenged. Ideal for ammo resupply systems, custom loot mechanics, achievement tracking, or any scenario where you need to detect and respond to players picking up dropped kits.
 
-Key features include adaptive check frequency that increases as players get closer to drops (reducing overhead when drops are far away), automatic expiration after the configured duration (defaulting to 37 seconds to match the game's bag despawn time), graceful error handling that prevents callback failures from crashing your mod, and configurable logging for debugging scavenger drop behavior. The module uses the `Timers` module for interval management and the `Logging` module for internal logging.
+Key features include zero-polling reactive proximity detection using 2-meter sphere zone subscriptions (`PlayerLocations.onSphere`), automatic expiration processing evaluated at the start of each tick (`Events.OnTickStart`) after the configured duration (defaulting to 37 seconds to match the game's bag despawn time), graceful error handling that prevents callback failures from crashing your mod, and configurable logging for debugging scavenger drop behavior. The module runs on flat typed arrays (Struct-of-Arrays) with an intrusive `Int8Array` free-list for zero runtime heap allocations.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
@@ -1281,7 +1825,7 @@ export function OnPlayerDied(
 ): void {
     // Create a scavenger drop that triggers when a player gets within 2 meters
     // Callbacks can be synchronous or asynchronous (return void or Promise<void>)
-    new ScavengerDrop(victim, (scavenger: mod.Player) => {
+    ScavengerDrop.create(victim, (scavenger: mod.Player) => {
         // Resupply the scavenger's primary weapon magazine ammo
         mod.SetInventoryMagazineAmmo(
             scavenger,
@@ -1303,9 +1847,9 @@ export function OnPlayerDied(
 - **Kill Confirmed** – Spawn an item on the dead body and give points to the player or team that confirms the kill.
 - **Achievement tracking** – Track scavenging events for statistics or achievements.
 - **Custom loot systems** – Implement custom loot mechanics beyond the default kit bag behavior.
-- **Drop cleanup** – Use `stop()` to manually cancel drops when needed (e.g., if a player respawns before the drop expires).
+- **Drop cleanup** – Use `stop(id)` or `stopAll()` to manually cancel drops when needed (e.g., round end or game mode resets).
 
-### Example: Custom Duration and Check Interval and Async Callback Handling
+### Example: Custom Duration and Async Callback Handling
 
 ```ts
 import { ScavengerDrop } from 'bf6-portal-utils/scavenger-drop';
@@ -1316,8 +1860,8 @@ export function OnPlayerDied(
     deathType: mod.DeathType,
     weapon: mod.WeaponUnlock
 ): void {
-    // Create a drop that lasts 20 seconds with checks every 100ms if a player is nearby.
-    new ScavengerDrop(
+    // Create a drop that lasts 20 seconds
+    ScavengerDrop.create(
         victim,
         async (scavenger: mod.Player) => {
             // Perform async operations
@@ -1328,88 +1872,128 @@ export function OnPlayerDied(
             // Log to external service, update statistics, etc.
             await logScavengeEvent(scavenger, victim);
         },
-        {
-            duration: 20_000, // 20 seconds
-            checkInterval: 100, // 100ms base check interval
-        }
+        20_000 // 20 seconds duration
     );
 }
 ```
 
 ## Known Limitations & Caveats
 
-- **Position Capture** – The drop captures the position of the dead player's body at creation time. If the body moves (e.g., due to physics or explosions), the drop will continue checking the original position. Always create the drop immediately in `OnPlayerDied` to ensure the position is accurate.
-
-- **Single Trigger** – Each drop triggers its callback only once—when the first player gets within 2 meters. If multiple players are close when the check occurs, only the closest player triggers the callback. If you need to handle multiple scavengers, create multiple drops or implement custom logic in your callback.
-
-- **Distance Precision** – The 2-meter threshold is fixed and cannot be configured. The threshold matches typical interaction ranges in Battlefield Portal that feel reasonable and ergonomic.
-
-- **Check Interval Precision** – The actual check frequency adapts based on player proximity, but the base `checkInterval` determines the minimum time between checks. Timer precision depends on `mod.Wait()`'s precision (used by the `Timers` module), which may vary slightly based on game performance and frame timing.
-
-- **Performance Considerations** – While the adaptive check frequency reduces overhead, creating many drops simultaneously (e.g., during intense combat with many deaths) will still create multiple interval timers. The module is optimized for typical gameplay scenarios, but extreme cases with hundreds of concurrent drops may impact performance.
-
-- **Async Callbacks** – Callbacks can be synchronous or asynchronous (returning `void` or `Promise<void>`). Async callbacks are not awaited by the drop, meaning:
-    - The drop doesn't wait for async operations to complete before cleaning up
-    - Errors or rejections from async callbacks are automatically caught and logged (if logging is configured)
-    - If you need to await async operations, handle that inside your callback
-
-- **Concurrent Drops** – Multiple drops can exist simultaneously and operate independently. Each drop maintains its own timers and state. There is no built-in limit on the number of concurrent drops.
+- **Pool Capacity** – The drop pool is pre-allocated to 128 concurrent slots (`MAX_DROPS`). If the pool is full when calling `create()`, it logs an error via `Logging` and returns `null` without throwing an exception.
+- **Position Capture** – The drop captures the position of the dead player's body at creation time. If the body moves (e.g., due to physics or explosions), the drop will continue monitoring the original position. Always create the drop immediately in `OnPlayerDied` to ensure the position is accurate.
+- **Single Trigger** – Each drop triggers its callback only once—when the first player gets within 2 meters. If multiple players enter simultaneously, only the first triggering player receives the callback.
+- **Distance Precision** – The 2-meter threshold is fixed and matches typical interaction ranges in Battlefield Portal.
+- **Async Callbacks** – Callbacks can be synchronous or asynchronous (returning `void` or `Promise<void>`). Async callbacks are not awaited by the drop; errors or rejections are caught and logged via `CallbackHandler`.
 
 ---
 
-## Module: solid-ui
+## Module: adapters
 
-This TypeScript `SolidUI` namespace provides a reactive UI framework for Battlefield Portal, inspired by [SolidJS](https://github.com/solidjs/solid). Unlike traditional frameworks that re-render entire components, `SolidUI` uses fine-grained reactivity to update only the specific UI properties that change, resulting in minimal overhead and maximum performance.
+The `SolidTweenAdapter`, `SolidSpringAdapter`, and `SolidDecayAdapter` namespaces provide reactive animation adapters bridging `Animations` and `Transitions` with Structure of Arrays Solid reactivity (`createSignal`, `createEffect`, `onCleanup`).
 
-`SolidUI` is a from-scratch implementation of reactive primitives (signals, effects, memos, stores) adapted for the Battlefield Portal environment. It uses a HyperScript-like factory function (`h`) instead of JSX/TSX, and integrates seamlessly with the [`UI`](../ui/README.md) module to create dynamic, reactive user interfaces. The module uses the `Logging` module for internal logging, allowing you to monitor effect errors and debug reactive system behavior.
+Key features include:
 
-> **Note** The `SolidUI` namespace is decoupled from the `UI` module but has been designed and tested with it. It assumes that UI objects have getters and setters for properties that need to be reactive.
+- **`SolidTweenAdapter.createTween(target, options)`** – Creates a reactive accessor that smoothly interpolates to new target values as the input signal changes.
+- **`SolidSpringAdapter.createSpring(target, options)`** – Creates a reactive spring physics accessor that tracks dynamic target values with momentum and velocity continuity.
+- **`SolidDecayAdapter.createDecay(velocity, options)`** – Creates a reactive friction-based decay/inertia accessor that glides position from current value based on velocity impulses.
+- **Automatic Lifecycle Cleanup** – Registers `onCleanup()` on the active component scope to immediately cancel running animations when components unmount or target values retarget mid-flight.
+
+### Examples
+
+```ts
+import { Solid } from 'bf6-portal-utils/solid/index.ts';
+import { SolidTweenAdapter } from 'bf6-portal-utils/solid/adapters/createTween.ts';
+import { SolidSpringAdapter } from 'bf6-portal-utils/solid/adapters/createSpring.ts';
+import { SolidDecayAdapter } from 'bf6-portal-utils/solid/adapters/createDecay.ts';
+
+// 1. SoA reactive tween
+const [width, setWidth] = Solid.createSignal(100);
+const animatedWidth = SolidTweenAdapter.createTween(width, { duration: 400 });
+
+// 2. SoA spring physics
+const [positionX, setPositionX] = Solid.createSignal(0);
+const animatedX = SolidSpringAdapter.createSpring(positionX, { stiffness: 180, damping: 24 });
+
+// 3. SoA decay / inertia momentum
+const [scrollVelocity, setScrollVelocity] = Solid.createSignal(0);
+const scrollOffset = SolidDecayAdapter.createDecay(scrollVelocity, { from: 0, deceleration: 0.997 });
+```
+
+---
+
+## Module: solid
+
+This TypeScript `Solid` namespace provides an ultra-low-overhead, pure **Structure-of-Arrays (SoA)** reactive UI and object framework for Battlefield Portal, inspired by [SolidJS](https://github.com/solidjs/solid). Unlike traditional frameworks that re-render entire components, `Solid` uses fine-grained reactivity to update only the specific properties that change, resulting in minimal overhead and maximum performance.
+
+`Solid` is a from-scratch implementation of reactive primitives (signals, effects, memos, stores) adapted for the resource-constrained Battlefield 6 Portal embedded JavaScript environment (QuickJS). It uses a HyperScript factory function (`Solid.h()`) instead of JSX/TSX, and integrates seamlessly with both the 2D [`UI`](../ui/README.md) module and the 3D [`Spatial`](../spatial/README.md) scene graph to create dynamic, reactive user interfaces and scene hierarchies.
+
+Unlike traditional reactive engines that allocate JavaScript closures, wrapper tuples, and class instances (`new Subscriber()`, `new SignalState()`), `Solid` operates on generation-encoded, branded integer identifiers (`SignalID`, `EffectID`) backed entirely by flat TypedArrays, static 2D dependency buffers (`MAX_DEPS_PER_SUB = 8`), and an intrusive doubly-linked edge graph.
+
+Updates are driven by a logical tick counter (advanced on each `Events.OnTickEnd` callback at priority `-95`), a two-tier scheduler queue (flat array for immediate microtasks and flat array for deferred ticks), and the microtask queue for immediate (`deferTicks: 0`) work. Optional **`deferTicks`** on effects, memos, `h()` bindings, and `Index()` coalesces re-runs to a future logical tick. Subscribing to `OnTickEnd` (`-95`) ensures that any reactive state written during `OnTickStart` or mid-tick engine events evaluates _before_ `Animations` (`-90`), `Spatial` (`-80`), and `UI.flush()` (`100`), allowing reactive updates to drive animations and scene graph transforms and commit to the UI in the exact same frame. The module uses the `Logging` module for internal logging, including scheduler safety limits (`MAX_EXECUTIONS_PER_FLUSH`, `MAX_FLUSHES_PER_TICK`).
+
+> **Note** The `Solid` namespace is decoupled from the `UI` and `Spatial` modules but has been designed and tested with them. It assumes that UI/Spatial objects have getters and setters for properties that need to be reactive.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
 **File: `src/index.ts`**
 
 ```ts
-import { SolidUI } from 'bf6-portal-utils/solid-ui';
+import { Solid } from 'bf6-portal-utils/solid';
 import { UI } from 'bf6-portal-utils/ui';
 
 // Optional: Configure logging for reactive system error monitoring
-SolidUI.setLogging((text) => console.log(text), SolidUI.LogLevel.Error);
+Solid.setLogging((text) => console.log(text), Solid.LogLevel.Error);
 
 function createCounterUI(player: mod.Player): void {
-    // Create a reactive signal
-    const [count, setCount] = SolidUI.createSignal(0);
+    // Create a reactive signal (returns a branded SignalID integer handle)
+    const countSig = Solid.createSignal(0);
 
     // Create a container with reactive visibility
-    const container = SolidUI.h(
-        UI.Container,
-        {
-            width: 200,
-            height: 100,
-            bgColor: UI.COLORS.BLACK,
-            bgAlpha: 0.8,
-            visible: true,
-        },
-        player
-    );
-
-    // Create text that updates when count changes
-    SolidUI.h(UI.Text, {
-        parent: container,
-        message: () => mod.Message(mod.stringkeys.count, count()), // Accessor function
-        textSize: 30,
-        textColor: UI.COLORS.WHITE,
+    const container = Solid.h(UI.Container, {
+        receiver: player,
+        width: 200,
+        height: 300,
+        visible: true,
     });
 
-    // Create a button that increments the count
-    SolidUI.h(UI.TextButton, {
+    // Create text that updates when count changes (using a getter function)
+    Solid.h(UI.Text, {
         parent: container,
-        y: 50,
-        width: 150,
-        height: 40,
+        anchor: UI.Anchor.TopCenter,
+        width: 200,
+        message: () => mod.Message(mod.stringkeys.count, Solid.read(countSig)),
+        textSize: 30,
+        textColor: UI.COLORS.BLACK,
+    });
+
+    // Create text that coalesces count change updates every 30 ticks
+    Solid.h(
+        UI.Text,
+        {
+            parent: container,
+            anchor: UI.Anchor.Center,
+            width: 200,
+            message: () => mod.Message(mod.stringkeys.count, Solid.read(countSig)),
+            textSize: 30,
+            textColor: UI.COLORS.BLACK,
+        },
+        { deferTicks: 30 } // Coalesce updates every 30 ticks
+    );
+
+    // Create a button that increments the count
+    Solid.h(UI.TextButton, {
+        parent: container,
+        anchor: UI.Anchor.BottomCenter,
+        width: 200,
         message: mod.Message(mod.stringkeys.increment),
+        textSize: 30,
+        textColor: UI.COLORS.BLACK,
         onClick: async () => {
-            setCount((c) => c + 1); // Update signal
+            // Update signal with a function receiving the previous value
+            Solid.write(countSig, (c) => c + 1);
+            // Solid.write(countSig, Solid.read(countSig) + 1); // Alternative: direct value write
         },
     });
 }
@@ -1424,94 +2008,52 @@ function createCounterUI(player: mod.Player): void {
 }
 ```
 
-**Example:**
-
 ```ts
-const [count, setCount] = SolidUI.createSignal(0);
+const countSig = Solid.createSignal(0);
 
 // Read the value (subscribes if called inside an effect or reactive property)
-console.log(count()); // 0
+console.log(Solid.read(countSig)); // 0
 
 // Update with a value
-setCount(5);
+Solid.write(countSig, 5);
 
 // Update with a function (receives previous value)
-setCount((prev) => prev + 1);
+Solid.write(countSig, (prev) => prev + 1);
 ```
 
-**Usage in UI:**
-
 ```ts
-const [isVisible, setVisible] = SolidUI.createSignal(false);
+const countSig = Solid.createSignal(0);
 
-const container = SolidUI.h(UI.Container, {
-    visible: isVisible, // Pass the accessor directly
-    width: 200,
-    height: 100,
+// Effect runs immediately and whenever countSig changes
+const effectId = Solid.createEffect(() => {
+    console.log(`Count is now: ${Solid.read(countSig)}`);
 });
 
-// Later, update the signal
-setVisible(true); // Container becomes visible automatically
+// Optional: defer re-runs by 2 logical ticks (coalesces rapid writes)
+// const deferredId = Solid.createEffect(() => { ... }, { deferTicks: 2 });
+
+Solid.write(countSig, 5); // Logs: "Count is now: 5"
+Solid.write(countSig, 10); // Logs: "Count is now: 10"
+
+// Stop and destroy the effect
+Solid.destroyEffect(effectId);
 ```
 
-**Example:**
-
 ```ts
-const [count, setCount] = SolidUI.createSignal(0);
-
-// Effect runs immediately and whenever count changes
-const dispose = SolidUI.createEffect(() => {
-    console.log(`Count is now: ${count()}`);
-});
-
-setCount(5); // Logs: "Count is now: 5"
-setCount(10); // Logs: "Count is now: 10"
-
-// Stop the effect
-dispose();
-```
-
-**Note:** Effects created inside `SolidUI.h()` are automatically cleaned up when the UI element is deleted. You typically don't need to manually dispose of them unless creating standalone effects.
-
-**Example:**
-
-```ts
-const [firstName, setFirstName] = SolidUI.createSignal('John');
-const [lastName, setLastName] = SolidUI.createSignal('Doe');
+const firstName = Solid.createSignal('John');
+const lastName = Solid.createSignal('Doe');
 
 // Create a memoized full name
-const fullName = SolidUI.createMemo(() => `${firstName()} ${lastName()}`);
+const fullName = Solid.createMemo(() => `${Solid.read(firstName)} ${Solid.read(lastName)}`);
 
-console.log(fullName()); // "John Doe"
+console.log(Solid.read(fullName)); // "John Doe"
 
-setFirstName('Jane');
-console.log(fullName()); // "Jane Doe" (automatically recomputed)
+Solid.write(firstName, 'Jane');
+console.log(Solid.read(fullName)); // "Jane Doe" (automatically recomputed)
 ```
-
-**Usage in UI:**
 
 ```ts
-const [health, setHealth] = SolidUI.createSignal(100);
-const [maxHealth, setMaxHealth] = SolidUI.createSignal(100);
-
-const healthPercent = SolidUI.createMemo(() => (health() / maxHealth()) * 100);
-
-SolidUI.h(UI.Text, {
-    message: () => mod.Message(mod.stringkeys.healthPercent, healthPercent().toFixed(1)),
-    // Only recomputes when health or maxHealth changes
-});
-```
-
-```json
-{
-    "healthPercent": "{}%"
-}
-```
-
-**Example:**
-
-```ts
-const [state, setState] = SolidUI.createStore({
+const [state, setState] = Solid.createStore({
     user: {
         name: 'John',
         age: 30,
@@ -1535,742 +2077,403 @@ setState((s) => {
 });
 ```
 
-**Usage in UI:**
-
-```ts
-const [uiState, setUIState] = SolidUI.createStore({
-    isVisible: false,
-    counter: {
-        value: 0,
-        increment: 1,
-    },
-});
-
-const container = SolidUI.h(UI.Container, {
-    visible: () => uiState.isVisible, // Tracks isVisible property
-    width: 200,
-    height: 100,
-});
-
-SolidUI.h(UI.Text, {
-    parent: container,
-    message: () => mod.Message(mod.stringkeys.value, uiState.counter.value), // Tracks counter.value
-});
-
-// Update the store
-setUIState((s) => {
-    s.isVisible = true; // Only container visibility updates
-    s.counter.value = 5; // Only text message updates
-});
-```
-
-```json
-{
-    "value": "Value: {}"
-}
-```
-
-**Example:**
-
 ```ts
 // Create a theme context
-const ThemeContext = SolidUI.createContext<'light' | 'dark'>('light');
+const ThemeContext = Solid.createContext<'light' | 'dark'>('light');
 
 // Provide a theme value
 ThemeContext.provide('dark', () => {
     // All useContext(ThemeContext) calls inside this scope return 'dark'
-    const container = SolidUI.h(UI.Container, {
+    const container = Solid.h(UI.Container, {
         bgColor: () => {
-            const theme = SolidUI.useContext(ThemeContext);
+            const theme = Solid.useContext(ThemeContext);
             return theme === 'dark' ? UI.COLORS.BLACK : UI.COLORS.WHITE;
         },
     });
 });
 
-// Use the context
-const theme = SolidUI.useContext(ThemeContext); // Returns 'dark' if inside provide, 'light' otherwise
+// Use the context outside
+const theme = Solid.useContext(ThemeContext); // Returns 'light' (default)
 ```
 
-**Example:**
-
 ```ts
-const [count, setCount] = SolidUI.createSignal(0);
-const [timer, setTimer] = SolidUI.createSignal(0);
+const countSig = Solid.createSignal(0);
+const timerSig = Solid.createSignal(0);
 
-SolidUI.createEffect(() => {
-    console.log(count()); // Tracks 'count'
-    SolidUI.untrack(() => {
-        console.log(timer()); // Logs 'timer' but doesn't track it
-        // This effect won't re-run when timer changes
+Solid.createEffect(() => {
+    console.log(Solid.read(countSig)); // Tracks 'countSig'
+    Solid.untrack(() => {
+        console.log(Solid.read(timerSig)); // Logs 'timerSig' but doesn't track it
     });
 });
 ```
 
-**Example:**
-
 ```ts
-SolidUI.h(
-    UI.Container,
-    {
-        // ... props
-    },
-    player
-);
+const countSig = Solid.createSignal(0);
+const visibleSig = Solid.createSignal(true);
 
-// Inside the component setup (if using functional components):
-SolidUI.onCleanup(() => {
-    // This runs when the container is deleted
-    console.log('Container cleaned up');
-});
-```
-
-**Note:** Cleanup functions registered via `onCleanup` inside `SolidUI.h()` are automatically called when the UI element's `delete()` method is invoked.
-
-**How Reactivity Works:**
-
-1. When you pass a function as a property value, `SolidUI.h()` treats it as an accessor
-2. It reads the initial value to set up the UI element
-3. It creates an effect that watches the accessor
-4. When the accessor's value changes, it updates only that specific property
-
-**Example with Signals:**
-
-```ts
-const [count, setCount] = SolidUI.createSignal(0);
-const [isVisible, setVisible] = SolidUI.createSignal(true);
-
-const container = SolidUI.h(UI.Container, {
-    visible: isVisible, // Reactive: updates when isVisible changes
+// 1. Direct SignalID prop binding
+const container = Solid.h(UI.Container, {
+    visible: visibleSig, // Passes SignalID directly
     width: 200,
     height: 100,
-    bgColor: UI.COLORS.BLACK,
 });
 
-SolidUI.h(UI.Text, {
+// 2. Getter function binding
+Solid.h(UI.Text, {
     parent: container,
-    message: () => mod.Message(mod.stringkeys.count, count()), // Reactive: updates when count changes
+    message: () => mod.Message(mod.stringkeys.count, Solid.read(countSig)),
     textSize: 30,
 });
 ```
 
-```json
-{
-    "count": "Count: {}"
-}
-```
-
-**Example with Stores:**
-
 ```ts
-const [state, setState] = SolidUI.createStore({
-    health: 100,
-    color: UI.COLORS.WHITE,
-});
-
-SolidUI.h(UI.Text, {
-    message: () => mod.Message(mod.stringkeys.health, state.message), // Tracks state.health
-    textColor: () => state.color, // Tracks state.color
-    textSize: 30,
-});
-```
-
-```json
-{
-    "health": "Health: {}"
-}
-```
-
-**Example with Functional Components:**
-
-```ts
-function MyButton(props: { team: number; onClick: () => void }) {
-    return SolidUI.h(UI.TextButton, {
-        message: mod.Message(mod.stringkeys.switchTeams, team),
-        onClick: props.onClick,
-        width: 200,
-        height: 40,
-    });
-}
-
-// Use the functional component
-SolidUI.h(MyButton, {
-    team: 1,
-    onClick: async () => {
-        console.log('Clicked!');
-        mod.SetTeam(thisPlayer, mod.GetTeam(1));
-    },
-});
-```
-
-```json
-{
-    "switchTeams": "Switch to team {}"
-}
-```
-
-**Important Notes:**
-
-- Properties that are functions are automatically made reactive
-- Properties that match the pattern `on[A-Z]` (start with lowercase "on" followed by an uppercase letter) are never made reactive and are always passed through as-is. This includes event handlers like `onClick`, `onHover`, `onDelete`, etc., but excludes properties like `onlyOnce`, `once`, or `online`
-- All reactive effects are automatically cleaned up when the UI element is deleted
-- You can mix static and reactive properties in the same props object
-
-**Example:**
-
-```ts
-const [items, setItems] = SolidUI.createSignal([
+const itemsSig = Solid.createSignal([
     { id: 1, name: mod.Message(mod.stringkeys.team1) },
     { id: 2, name: mod.Message(mod.stringkeys.team2) },
-    { id: 3, name: mod.Message(mod.stringkeys.team3) },
 ]);
 
-const container = SolidUI.h(UI.Container, {
-    width: 300,
-    height: 400,
-});
+const container = Solid.h(UI.Container, { width: 300, height: 400 });
 
-// Render a list of items
-SolidUI.Index(
-    items, // Accessor to the array
-    (item, index) => {
-        // item() returns the current value at this index
-        // index is a static number (0, 1, 2, ...)
-        return SolidUI.h(UI.Text, {
-            parent: container,
-            y: index * 50, // Position based on index
-            message: () => item().name, // Reactive: updates when this item changes
-            textSize: 24,
-        });
-    }
-);
-
-// Update the array
-setItems([
-    { id: 2, name: mod.Message(mod.stringkeys.team2Up) }, // Widget at index 0 updates
-    { id: 1, name: mod.Message(mod.stringkeys.team1) }, // Widget at index 1 updates
-    // Widget at index 2 is disposed (array shrunk)
-]);
-
-// Add new items
-setItems((prev) => [
-    ...prev,
-    { id: 4, name: mod.Message(mod.stringkeys.team4) }, // New widget created at index 3
-]);
-```
-
-```json
-{
-    "item1": "Item 1",
-    "item2": "Item 2",
-    "item3": "Item 3",
-    "item4": "Item 4",
-    "item2Up": "Item 2 Updated"
-}
-```
-
-## Usage Patterns
-
-### Basic Reactive UI
-
-The simplest pattern: create signals and pass them as property values.
-
-```ts
-function createBasicUI(player: mod.Player): void {
-    const [count, setCount] = SolidUI.createSignal(0);
-
-    const container = SolidUI.h(
-        UI.Container,
-        {
-            width: 200,
-            height: 150,
-            bgColor: UI.COLORS.BLACK,
-            bgAlpha: 0.8,
-        },
-        player
-    );
-
-    SolidUI.h(UI.Text, {
+Solid.Index(itemsSig, (itemSig, index) => {
+    return Solid.h(UI.Text, {
         parent: container,
-        message: () => mod.Message(mod.stringkeys.count, count()),
-        textSize: 30,
-        textColor: UI.COLORS.WHITE,
+        y: index * 50,
+        message: () => Solid.read(itemSig).name, // Per-row reactive signal
+        textSize: 24,
     });
-
-    SolidUI.h(UI.TextButton, {
-        parent: container,
-        y: 50,
-        width: 150,
-        height: 40,
-        message: mod.Message(mod.stringkeys.increment),
-        onClick: async () => setCount((c) => c + 1),
-    });
-}
-```
-
-```json
-{
-    "count": "Count: {}",
-    "increment": "Increment"
-}
-```
-
-### Conditional Visibility
-
-Use signals to control visibility and other conditional properties.
-
-```ts
-function createModalUI(player: mod.Player): void {
-    const [isOpen, setIsOpen] = SolidUI.createSignal(false);
-
-    const modal = SolidUI.h(
-        UI.Container,
-        {
-            visible: isOpen, // Reactive visibility
-            uiInputModeWhenVisible: true, // Automatically manages input mode
-            width: 400,
-            height: 300,
-            bgColor: UI.COLORS.BLACK,
-            bgAlpha: 0.9,
-            bgFill: mod.UIBgFill.Blur,
-        },
-        player
-    );
-
-    SolidUI.h(UI.TextButton, {
-        parent: modal,
-        y: 120,
-        width: 200,
-        height: 50,
-        message: mod.Message(mod.stringkeys.close),
-        onClick: async () => setIsOpen(false),
-    });
-
-    // Function to toggle the modal visibility
-    return () => setIsOpen(!isOpen());
-}
-```
-
-```json
-{
-    "close": "Close"
-}
-```
-
-### Derived State with Memos
-
-Use memos to compute values that depend on multiple signals.
-
-```ts
-function createHealthBar(player: mod.Player): void {
-    const [health, setHealth] = SolidUI.createSignal(100);
-    const [maxHealth, setMaxHealth] = SolidUI.createSignal(100);
-
-    // Compute health percentage
-    const healthPercent = SolidUI.createMemo(() => (health() / maxHealth()) * 100);
-
-    // Compute health color (red when low, green when high)
-    const healthColor = SolidUI.createMemo(() => {
-        const percent = healthPercent();
-        if (percent < 25) return UI.COLORS.RED;
-        if (percent < 50) return UI.COLORS.YELLOW;
-        return UI.COLORS.GREEN;
-    });
-
-    const container = SolidUI.h(
-        UI.Container,
-        {
-            width: 200,
-            height: 20,
-            bgColor: UI.COLORS.BF_GREY_3,
-            bgAlpha: 0.8,
-        },
-        player
-    );
-
-    // Health bar (width based on percentage)
-    SolidUI.h(UI.Container, {
-        parent: container,
-        width: () => healthPercent(), // Reactive width
-        height: 20,
-        bgColor: healthColor, // Reactive color
-        bgAlpha: 1,
-    });
-
-    // Health text
-    SolidUI.h(UI.Text, {
-        parent: container,
-        message: () => mod.Message(mod.stringkeys.health, health(), maxHealth()),
-        textSize: 16,
-        textColor: UI.COLORS.WHITE,
-    });
-}
-```
-
-```json
-{
-    "health": "{} / {}"
-}
-```
-
-### Complex State with Stores
-
-Use stores for nested state that needs fine-grained reactivity.
-
-```ts
-type GameState = {
-    player: {
-        name: string;
-        score: number;
-    };
-    ui: {
-        isMenuOpen: boolean;
-        selectedTab: string;
-    };
-};
-
-function createGameUI(player: mod.Player): void {
-    const [state, setState] = SolidUI.createStore<GameState>({
-        player: {
-            name: 'Player',
-            score: 0,
-        },
-        ui: {
-            isMenuOpen: false,
-            selectedTab: 'stats',
-        },
-    });
-
-    // Menu container (only tracks ui.isMenuOpen)
-    const menu = SolidUI.h(
-        UI.Container,
-        {
-            visible: () => state.ui.isMenuOpen,
-            width: 400,
-            height: 500,
-            bgColor: UI.COLORS.BLACK,
-            bgAlpha: 0.9,
-        },
-        player
-    );
-
-    // Score display (only tracks player.score)
-    SolidUI.h(UI.Text, {
-        parent: menu,
-        message: () => mod.Message(mod.stringkeys.score, state.player.score),
-        textSize: 30,
-        textColor: UI.COLORS.WHITE,
-    });
-
-    // Update only specific properties
-    setState((s) => {
-        s.player.score += 10; // Only score text updates
-    });
-
-    setState((s) => {
-        s.ui.isMenuOpen = true; // Only menu visibility updates
-    });
-}
-```
-
-```json
-{
-    "score": "Score: {}"
-}
-```
-
-### Dynamic Lists
-
-Use `Index` to render lists that update efficiently.
-
-```ts
-type PlayerScore = {
-    id: number;
-    player: mod.Player;
-    score: number;
-};
-
-function createScoreboard(player: mod.Player): void {
-    const [scores, setScores] = SolidUI.createSignal<PlayerScore[]>([]);
-
-    const container = SolidUI.h(
-        UI.Container,
-        {
-            width: 300,
-            height: 400,
-            bgColor: UI.COLORS.BLACK,
-            bgAlpha: 0.8,
-        },
-        player
-    );
-
-    // Render the list
-    SolidUI.Index(scores, (playerScore, index) => {
-        return SolidUI.h(UI.Text, {
-            parent: container,
-            y: index * 30, // Position based on index
-            message: () => {
-                const playerScore = playerScore();
-                return mod.Message(mod.stringkeys.score, playerScore.player, playerScore.score);
-            },
-            textSize: 20,
-            textColor: UI.COLORS.WHITE,
-        });
-    });
-
-    // Update the list (Assume player1, player2, and player3 are some valid `mod.Player` objects)
-    setScores([
-        { id: 1, player: player1, score: 100 },
-        { id: 2, player: player2, score: 85 },
-        { id: 3, player: player3, score: 120 },
-    ]);
-
-    // Sort and update (widgets stay in place, content updates)
-    setScores((prev) => [...prev].sort((a, b) => b.score - a.score));
-}
-```
-
-```json
-{
-    "score": "{}: {}"
-}
-```
-
-### Real-World Example: Spawn UI
-
-This example is based on the [`FFASpawning`](../ffa-spawning/index.ts) module, demonstrating a complete reactive UI system.
-
-```ts
-function createSpawnUI(player: mod.Player): void {
-    const [delayCountdown, setDelayCountdown] = SolidUI.createSignal(-1);
-
-    // Prompt container (visible when countdown reaches 0)
-    const promptUI = SolidUI.h(
-        UI.Container,
-        {
-            x: 0,
-            y: 0,
-            width: 440,
-            height: 140,
-            anchor: mod.UIAnchor.Center,
-            visible: () => delayCountdown() === 0,
-            uiInputModeWhenVisible: true, // Automatically manages input mode
-            bgColor: UI.COLORS.BF_GREY_4,
-            bgAlpha: 0.5,
-            bgFill: mod.UIBgFill.Blur,
-        },
-        player
-    );
-
-    // Spawn button
-    SolidUI.h(UI.TextButton, {
-        parent: promptUI,
-        y: 20,
-        width: 400,
-        height: 40,
-        anchor: mod.UIAnchor.TopCenter,
-        message: mod.Message('Spawn now'),
-        textSize: 30,
-        textColor: UI.COLORS.BF_GREEN_BRIGHT,
-        onClick: async () => {
-            // Spawn logic here
-            setDelayCountdown(-1);
-        },
-    });
-
-    // Countdown text (visible when countdown > 0)
-    SolidUI.h(
-        UI.Text,
-        {
-            x: 0,
-            y: 60,
-            width: 400,
-            height: 50,
-            anchor: mod.UIAnchor.TopCenter,
-            message: () => mod.Message(`Spawning available in ${delayCountdown()} seconds...`),
-            textSize: 30,
-            textColor: UI.COLORS.BF_GREEN_BRIGHT,
-            visible: () => delayCountdown() > 0,
-        },
-        player
-    );
-
-    // Start the countdown (a timer calls `setDelayCountdown` every second, which automatically updates the UI).
-    setDelayCountdown(10);
-}
-```
-
-**Example:**
-
-```ts
-function MyButton(props: { team: number; onClick: () => void }) {
-    return SolidUI.h(UI.TextButton, {
-        message: mod.Message(mod.stringkeys.switchTeams, props.team),
-        onClick: props.onClick,
-        width: 200,
-        height: 40,
-    });
-}
-
-// MyButton is a FunctionalComponent<{ team: number; onClick: () => void }, TextButtonInstance>
-SolidUI.h(MyButton, {
-    team: 1,
-    onClick: async () => {
-        console.log('Clicked!');
-    },
 });
 ```
-
-**Note:** Functional components receive props where values can be either static values or accessor functions (signals). The component can call accessors to get reactive values, but the props themselves are not automatically unwrapped.
-
-## Known Limitations & Caveats
-
-### UI Module Dependency
-
-While `SolidUI` is decoupled from the `UI` module, it assumes that UI objects have getters and setters for properties. It has only been tested with the `UI` module. Using it with other UI systems may require adaptation.
-
-### Property Assignment
-
-`SolidUI.h()` uses property setters to update UI elements. If a property is read-only or doesn't have a setter, updates will fail silently (errors are caught). Ensure your UI objects have proper setters for reactive properties.
-
-### Accessor Function Detection
-
-`SolidUI.h()` treats any function value as an accessor. If you need to pass a function as a static value (not reactive), you'll need to work around this. Properties that match the pattern `on[A-Z]` (start with lowercase "on" followed by an uppercase letter) are never made reactive. This includes event handlers like `onClick`, `onHover`, `onDelete`, etc., but excludes properties like `onlyOnce`, `once`, or `online`.
-
-### Store Updates
-
-Store updates must use the `setStore` function with a producer. Direct assignment to store properties (e.g., `store.value = 5`) works but may not trigger reactivity correctly in all cases. Always use the setter:
-
-```ts
-// ✅ Correct
-setStore((s) => {
-    s.value = 5;
-});
-
-// ⚠️ May work but not recommended
-store.value = 5;
-```
-
-### Effect Execution Order
-
-Effects execute in the order they were scheduled, but there's no guarantee of execution order across different signals. If you need specific ordering, chain effects manually or use a single effect.
-
-### Effect Error Handling
-
-Effect errors are automatically caught and logged (if logging is configured via `SolidUI.setLogging()`) to prevent one failing effect from breaking the entire reactive system. Errors are logged at the `Error` log level. If you need additional error handling, implement it inside your effects.
-
-### Memory Management
-
-Effects and subscriptions are automatically cleaned up when UI elements are deleted. However, if you create standalone effects or roots, you must manually dispose of them to prevent memory leaks.
-
-### Async Updates
-
-All reactive updates are asynchronous. If you need synchronous updates (not recommended), you'll need to use the underlying `UI` module directly.
 
 ---
 
 ## Module: sounds
 
-This TypeScript `Sounds` namespace abstracts away and handles the nuance, oddities, and pitfalls that come with playing sounds at runtime in Battlefield Portal experiences. The module provides efficient sound object management through automatic pooling and reuse, handles different playback scenarios (2D global, 2D per-player/squad/team, and 3D positional with optional target filtering), manages sound durations automatically, and provides manual control when needed.
+This TypeScript `Sounds` namespace wraps Battlefield Portal’s SFX workflow into a pure functional decorator API around native `mod.SFX` spatial objects. It creates spatial sounds, routes playback to specific audiences (players, squads, or teams), handles stepped volume fading, timed stops, and automatic cleanup. The module builds on the [`Timers`](../timers/README.md) module for delays/fades and uses the [`Logging`](../logging/README.md) module for optional diagnostics.
 
-Key features include automatic sound object reuse to minimize spawn overhead, intelligent availability tracking to prevent sound conflicts, automatic stopping after specified durations, and support for infinite-duration sounds (e.g., looping assets).
+Use **`Sounds.create()`** to spawn a native `mod.SFX` object, or pass any existing `mod.SFX` (from map fixtures or other modules) into **`Sounds.play()`**, **`Sounds.stop()`**, **`Sounds.fade()`**, and **`Sounds.dispose()`**. For fire-and-forget one-shots, call **`Sounds.playOneShot()`** which creates, plays, and automatically unspawns the sound upon duration expiry.
 
-### Example
+> **Resource Management.** Sounds created with `Sounds.create()` or `mod.SpawnObject()` remain active on the server until **`Sounds.dispose(sfx)`** or **`mod.UnspawnObject(sfx)`** is called. Fire-and-forget sounds created via **`Sounds.playOneShot()`** are automatically disposed upon duration expiry. Always dispose long-lived sounds when their lifecycle ends (e.g. game phase transition or player leave).
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Example: fire-and-forget one-shot
 
 ```ts
 import { Sounds } from 'bf6-portal-utils/sounds';
 
-// Define your sound assets (obtain these from your Battlefield Portal experience's asset browser)
-const SOUND_ALPHA_2D = mod.RuntimeSpawn_Common.SFX_UI_EOR_RankUp_Extra_OneShot2D;
-const SOUND_BULLET_3D = mod.RuntimeSpawn_Common.SFX_Projectiles_Flybys_Bullet_Crack_Sniper_Close_OneShot3D;
-const SOUND_LOOP_2D = mod.RuntimeSpawn_Common.SFX_UI_EOR_Counting_SimpleLoop2D;
-const SOUND_LOOP_3D = mod.RuntimeSpawn_Common.SFX_GameModes_BR_Mission_DemoCrew_Alarm_Close_SimpleLoop3D;
+// Plays a 3D explosion sound for 3 seconds, then automatically unspawns/disposes it:
+Sounds.playOneShot(mod.RuntimeSpawn_Common.SFX_Explosions_Large_OneShot3D, 3_000, 1.0, {
+    position: mod.CreateVector(100, 20, -50),
+    attenuationRange: 50,
+});
+```
 
-const playerUndeployedLoops: Map<number, () => void> = new Map();
+### Example: one-shot with automatic fade
 
-export async function OnGameModeStarted(): Promise<void> {
-    // Optional: Set up logging for debugging
-    Sounds.setLogging((text) => console.log(text), Sounds.LogLevel.Info);
+```ts
+import { Sounds } from 'bf6-portal-utils/sounds';
 
-    // Optional: Preload some sounds to reduce first-play latency (minimal, if any)
-    Sounds.preload(SOUND_ALPHA_2D);
-    Sounds.preload(SOUND_BULLET_3D);
-    Sounds.preload(SOUND_LOOP_2D);
+// Plays a 2D sound for 5 seconds that automatically begins fading out after 2 seconds:
+Sounds.playOneShot(mod.RuntimeSpawn_Common.SFX_UI_EOR_Counting_SimpleLoop2D, 5_000, 0.8, {
+    fadeOptions: {
+        delay: 2_000,
+        duration: 3_000,
+        targetAmplitude: 0,
+        stopOnComplete: true,
+    },
+});
+```
 
-    // Play an infinite-duration looping sound at each HQ.
-    const hqPosition1 = mod.GetObjectPosition(mod.GetHQ(1));
-    const hqPosition2 = mod.GetObjectPosition(mod.GetHQ(2));
+### Example: persistent spatial sound manipulation
 
-    const ambientSound1 = Sounds.play3D(SOUND_LOOP_3D, hqPosition1, {
-        amplitude: 3,
-        attenuationRange: 100, // Sound can be heard up to 100 meters away
-        duration: 0, // 0 = infinite duration
+```ts
+import { Sounds } from 'bf6-portal-utils/sounds';
+
+// 1. Create native mod.SFX spatial object:
+const alarmSFX = Sounds.create(
+    mod.RuntimeSpawn_Common.SFX_GameModes_Rush_Alarm_SimpleLoop3D,
+    mod.CreateVector(0, 5, 0)
+);
+
+// 2. Play it with an initial attenuation range:
+Sounds.play(alarmSFX, 1.0, { attenuationRange: 30 });
+
+// 3. Move the spatial object natively or via a spatial physics library:
+mod.MoveObjectOverTime(alarmSFX, mod.CreateVector(20, 5, 0), mod.CreateVector(0, 0, 0), 5, false, false);
+
+// 4. Smoothly fade it out:
+Sounds.fade(alarmSFX, {
+    startAmplitude: 1.0,
+    targetAmplitude: 0,
+    duration: 3_000,
+    stopOnComplete: true,
+});
+
+// 5. Clean up when no longer needed:
+// Sounds.dispose(alarmSFX);
+```
+
+---
+
+## Module: spatial
+
+The `Spatial` namespace provides a high-performance, unified 3D scene graph and hierarchical transformation system for Battlefield 6 Portal.
+
+It combines an **ergonomic, object-oriented class API** (`new Spatial.Empty()`, `new Spatial.Runtime()`, `new Spatial.Existing()`) with a **high-performance Structure of Arrays (SoA) backend** stored in flat TypedArrays (`Float32Array`, `Int16Array`, `Uint8Array`).
+
+This architecture:
+
+- Provides **100% native compatibility with [`Solid.h()`](../solid/README.md)** for declarative, fine-grained reactive 3D hierarchies.
+- Uses **zero-allocation property setters** that write directly to contiguous flat buffers and set bitflags (`FLAG_DIRTY | FLAG_ENGINE_TRANSFORM_DIRTY`).
+- Features complete **1:1 API symmetry** between OOP instance methods and raw integer ID functions (`Spatial.createRuntimeId()`, `Spatial.setLocalPosition()`) for high-throughput, zero-heap particle and projectile swarms.
+- Prevents stale ID reuse with **generation-encoded IDs** (`SpatialNodeID`) with slot retirement at 65,535 generations to eliminate wrap-around collisions.
+- Incorporates **deadband synchronization**: only issues native `mod.SetObjectTransform` calls when cumulative evaluated world transforms exceed configurable thresholds (`positionRenderPrecision`, `rotationRenderPrecision`), dramatically cutting Portal engine overhead.
+- Supports **hierarchical scale propagation**: parent scale scales child spatial translation offsets and orbital distances in world space (`worldPos = parentPos + parentRot * (childPos * parentScale)`). _Note_: dynamic runtime scale modifications update hierarchical coordinates and space projections, but do not alter the visual draw mesh scale of already-spawned native engine objects (which is fixed at spawn by the engine via `spawnScale`).
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+## Declarative 3D with `Solid`
+
+Because `Spatial.Empty`, `Spatial.Runtime`, and `Spatial.Existing` expose public constructors and standard property getters and setters, they integrate seamlessly with `Solid.h()`:
+
+```ts
+import { Events } from 'bf6-portal-utils/events';
+import { Quaternions } from 'bf6-portal-utils/quaternions';
+import { Solid } from 'bf6-portal-utils/solid';
+import { Spatial } from 'bf6-portal-utils/spatial';
+import { Vectors } from 'bf6-portal-utils/vectors';
+
+// Note: This is just an example of combining Spatial and Solid to create a controller camera. In practice, the Spatial API provides simpler follow controls to replicate this in fewer lines.
+export function createControlledCameraWithSolid(player: mod.Player) {
+    // 1. Reactive state signal for camera rotation (returns a SignalID handle)
+    const aimSignal = Solid.createSignal<Quaternions.Quaternion>({ w: 1, x: 0, y: 0, z: 0 });
+
+    // 2. Base anchor attached to player object position
+    const cameraBase = Solid.h(Spatial.Empty, {
+        position: () => mod.GetObjectPosition(player),
     });
 
-    const ambientSound2 = Sounds.play3D(SOUND_LOOP_3D, hqPosition2, {
-        amplitude: 3,
-        attenuationRange: 100, // Sound can be heard up to 100 meters away
-        duration: 0, // 0 = infinite duration
-    });
-}
-
-export async function OnPlayerJoinGame(eventPlayer: mod.Player): Promise<void> {
-    // Play a 2D sound for all players
-    Sounds.play2D(SOUND_ALPHA_2D, { amplitude: 0.8, duration: 2000 });
-}
-
-export function OnPlayerUndeploy(eventPlayer: mod.Player): void {
-    // Play a 2D sound loop for a specific player
-    const stopSound = Sounds.play2D(SOUND_LOOP_2D, {
-        target: eventPlayer,
-        amplitude: 1,
-        duration: 0,
+    // 3. Aiming camera with fine-grained reactive rotation
+    const camera = Solid.h(Spatial.Runtime, {
+        parent: cameraBase,
+        prefab: mod.RuntimeSpawn_Common.CameraSurveillance_01_B,
+        position: { x: 0, y: 1.5, z: 0 }, // Above the player's head
+        localRotation: aimSignal, // Automatically creates effect + setter binding
     });
 
-    // Save the stop function so it can be called once the player leaves the deploy screen.
-    playerUndeployedLoops.set(mod.GetObjId(eventPlayer), stopSound);
-}
+    // 4. Update yaw-only rotation from player facing direction each tick
+    Events.OnTickStart.subscribe(() => {
+        // Retrieve 3D rotation vector from player object
+        const rotation = Vectors.toVector3(mod.GetObjectRotation(player));
 
-export function OnPlayerDeployed(eventPlayer: mod.Player): void {
-    // Stop the looping sound if it exists for the player.
-    playerUndeployedLoops.get(mod.GetObjId(eventPlayer))?.();
-}
-
-export async function OnPlayerDied(
-    victim: mod.Player,
-    killer: mod.Player,
-    deathType: mod.DeathType,
-    weapon: mod.WeaponUnlock
-): Promise<void> {
-    const victimPosition = mod.GetSoldierState(victim, mod.SoldierStateVector.GetPosition);
-
-    // Play a 3D positional sound at the victim's location
-    Sounds.play3D(SOUND_BULLET_3D, victimPosition, {
-        amplitude: 1.5,
-        attenuationRange: 50, // Sound can be heard up to 50 meters away
-        duration: 5000,
+        Solid.write(aimSignal, Quaternions.fromPlayerRotation(rotation));
     });
+
+    return { cameraBase, camera, aimSignal };
+}
+
+// Note: Simpler follower
+export function createControlledCameraWithFollow(player: mod.Player): Spatial.Runtime {
+    const camera = new Spatial.Runtime({
+        prefab: mod.RuntimeSpawn_Common.CameraSurveillance_01_B,
+    });
+
+    camera.setFollow({
+        target: player,
+        offset: { x: 0, y: 1.5, z: 0 }, // Above the player's head
+        trackRotation: true,
+    });
+
+    return camera;
 }
 ```
 
-- **Infinite Duration Objects** – Sound objects with infinite duration (`duration: 0`) remain in the `active` set until manually stopped. **Important:** For infinite-duration sounds, you must keep a reference to the returned stop function so you can call it when needed. Without this reference, the sound will play indefinitely (whether or not it's actually making sound, as it might not be a looping asset) and the underlying `SoundObject` cannot be freed or reused, effectively leaking resources. While the resource cost is small, this can accumulate over time if many infinite-duration sounds are started without proper cleanup.
+---
 
-- **Concurrent Playback** – The system allows multiple instances of sounds to play simultaneously for a given location or target. If you need to prevent overlapping sounds, you'll need to implement that logic yourself.
+## High-Throughput Raw ID Bypass (Zero Heap Allocations)
+
+For large systems (e.g. 100+ projectiles, particles, or debris chunks), bypass class wrapper allocations entirely using raw integer IDs (`SpatialNodeID`):
+
+```ts
+import { Spatial } from 'bf6-portal-utils/spatial';
+
+// Pre-allocate ID buffer
+const projectileIds = new Int16Array(100);
+
+for (let i = 0; i < 100; ++i) {
+    // 0 heap objects allocated
+    const id = Spatial.createRuntimeId({
+        prefab: mod.RuntimeSpawn_Common.Sphere_01,
+        position: { x: i * 2, y: 0, z: 0 },
+    });
+
+    if (id !== null) {
+        projectileIds[i] = id;
+    }
+}
+
+// In tick loop (0 allocations):
+for (let i = 0; i < 100; ++i) {
+    const id = projectileIds[i] as Spatial.SpatialNodeID;
+    Spatial.setLocalPosition(id, { x: i * 2, y: Math.sin(Date.now() / 100 + i), z: 0 });
+}
+```
+
+---
+
+## Module: timelines
+
+The `Timelines` namespace provides a high-performance, target-agnostic animation choreography engine tailored for server-side QuickJS environments in Battlefield Portal. The system enables multi-step sequencing—including sequential and parallel tweens, spring physics, delays, loops, and action/event callbacks—with zero steady-state heap allocations, Structure-of-Arrays (SoA) pooling, dual-duty intrusive free-lists, and centralized master ticker integration.
+
+Key features include:
+
+- **Structure of Arrays Engine (`Timelines`)** – Pooled state management using TypedArrays (`Uint8Array`, `Uint16Array`, `Uint32Array`, `Int16Array`) with a dual-duty free-list array (`_currentStep`) to eliminate GC pressure during playback.
+- **Dual API Access** – Exposes both a pure, unboxed primitive `TimelineID` functional API (`Timelines.play(id)`, `Timelines.stop(id)`) for zero-allocation game loops, and an optional, thin object-oriented wrapper (`new Timelines.Timeline()`).
+- **Flexible Step Choreography** – Supports single tweens (`addTween`), spring physics (`addSpring`), friction-based decay (`addDecay`), parallel multi-track batches (`addParallel`), delays (`addWait`), and action/event triggers (`addCall`).
+- **Start Delays & Cascade Staggering (`delayMs`)** – Native start delay support on all animation steps and parallel child tracks for clean staggered cascade reveals.
+- **Update Rate Throttling (`minUpdateDeltaMs`)** – Configurable default throttle rate per timeline with step-level overrides to minimize server tick processing overhead.
+- **Looping & Yoyo Alternation** – Supports finite or infinite looping (`loop: true | number`) with optional ping-pong reverse alternation (`yoyo: true`) and `onStep`, `onLoop`, and `onComplete` lifecycle callbacks.
+- **Sync & Async Callback Safety** – Callbacks (`onStep`, `onLoop`, `onComplete`, `addCall`, and step `onUpdate`/`onComplete`) accept both synchronous `void` and asynchronous `Promise<void>` functions with integrated rejection catching via `CallbackHandler`.
+- **Target Agnostic & Strict Encapsulation** – Does not directly mutate engine objects. Operates on progress values ($0 \to 1$) and numbers, allowing seamless choreography across `UI`, `Spatial`, audio, and custom gameplay state.
+- **Tick Lifecycle Integration (`OnTickEnd` at Priority `-100` / `First`)** – Subscribes to `Events.OnTickEnd` before all other simulation modules so that step transitions and newly triggered child tweens are registered immediately before `Solid` (`-95`), `Animations` (`-90`), `Spatial` (`-80`), and `UI.flush()` (`100`) execute in the same frame.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Examples
+
+#### 1. Functional ID-Based Timeline (Zero Heap Allocations)
+
+```ts
+import { Timelines } from 'bf6-portal-utils/timelines';
+import { Transitions } from 'bf6-portal-utils/transitions';
+import { Vectors } from 'bf6-portal-utils/vectors';
+
+const scratch = { x: 0, y: 0, z: 0 };
+const startPos = { x: -500, y: 0, z: 0 };
+const endPos = { x: 0, y: 0, z: 0 };
+
+// Allocate timeline
+const id = Timelines.create({
+    onComplete: () => {
+        // Timeline completed
+    },
+});
+
+if (id !== null) {
+    // 1. Slide in with cubic easing
+    Timelines.addTween(id, {
+        from: 0,
+        to: 1,
+        duration: 300,
+        easing: Transitions.Easing.outCubic,
+        onUpdate: (t) => {
+            panel.bgAlpha = t * 0.9;
+            panel.position = Vectors.lerp(startPos, endPos, t, scratch);
+        },
+    });
+
+    // 2. Pause for 1.5 seconds
+    Timelines.addWait(id, 1500);
+
+    // 3. Fling / decay panel out with velocity
+    Timelines.addDecay(id, {
+        from: 0,
+        velocity: 1200,
+        deceleration: 0.995,
+        onUpdate: (x) => {
+            panel.position.x = x;
+        },
+    });
+
+    // 4. Fire custom event
+    Timelines.addCall(id, () => {
+        Events.OnNotificationDismissed.trigger(player);
+    });
+
+    // Playback control
+    Timelines.play(id);
+    Timelines.pause(id);
+    Timelines.resume(id);
+    Timelines.stop(id);
+}
+```
+
+#### 2. Fluent Class Wrapper
+
+```ts
+import { Timelines } from 'bf6-portal-utils/timelines';
+import { Transitions } from 'bf6-portal-utils/transitions';
+
+const tl = new Timelines.Timeline({ loop: 2, yoyo: true })
+    .addTween({
+        from: 0,
+        to: 100,
+        duration: 400,
+        delayMs: 100, // wait 100ms before starting
+        easing: Transitions.Easing.outBack,
+        onUpdate: (val) => {
+            widget.width = val;
+        },
+    })
+    .addWait(200)
+    .addParallel([
+        {
+            type: 'tween',
+            duration: 250,
+            delayMs: 0,
+            easing: Transitions.Easing.inQuad,
+            onUpdate: (t) => {
+                label.textAlpha = 1 - t;
+            },
+        },
+        {
+            type: 'spring',
+            from: 100,
+            to: 0,
+            delayMs: 50, // staggered cascade start
+            stiffness: 220,
+            damping: 28,
+            onUpdate: (val) => {
+                widget.width = val;
+            },
+        },
+        {
+            type: 'decay',
+            from: 0,
+            velocity: 600,
+            delayMs: 100, // staggered cascade start
+            deceleration: 0.997,
+            onUpdate: (val) => {
+                widget.x = val;
+            },
+        },
+    ])
+    .play();
+
+// Async playback resolution
+await tl.playAsync();
+```
 
 ---
 
 ## Module: timers
 
-This TypeScript `Timers` namespace provides `setTimeout` and `setInterval` functionality for Battlefield Portal experiences which run in a QuickJS runtime, which does not natively include these standard JavaScript timing functions. The module uses Battlefield Portal's `mod.Wait()` API internally to implement timer behavior, tracks active timers with unique IDs, and provides error handling to ensure robust timer execution.
+This TypeScript `Timers` namespace provides `setTimeout` and `setInterval` functionality for Battlefield Portal experiences which run in a QuickJS runtime, which does not natively include these standard JavaScript timing functions. The module uses a highly optimized, zero-allocation pre-allocated data pool evaluated at the start of every game tick (`Events.OnTickStart`) to execute and manage timers reliably, ensuring timer callback mutations immediately participate in the current tick's simulation and commit pipeline while avoiding promise overhead and dynamic memory allocation.
 
-**Why use Timers instead of `mod.Wait()`?** The `Timers` module offers significant advantages: timers can be cancelled with `clearTimeout()`/`clearInterval()`, multiple timers can run concurrently without blocking, automatic error handling prevents timer failures from crashing your mod, and the familiar JavaScript API makes code more readable and maintainable. Ideal for periodic tasks, delayed actions, debouncing, and any scenario where you need cancellable or recurring delays. See the [Comparing Timers to mod.Wait()](#comparing-timers-to-modwait) section below for a detailed comparison.
+**Why use Timers instead of traditional delay loops?** The `Timers` module offers significant advantages: timers can be cancelled with `clearTimeout()`/`clearInterval()`, multiple timers can run concurrently without blocking, automatic error handling prevents timer failures from crashing your mod, and the familiar JavaScript API makes code more readable and maintainable. Ideal for periodic tasks, delayed actions, debouncing, and any scenario where you need cancellable or recurring delays. See the [Comparing Timers to mod.Wait()](#comparing-timers-to-modwait) section below for a detailed comparison.
+
+Key features include automatic timer ID management, graceful error handling that prevents timer failures from crashing your mod, support for immediate interval execution, and configurable logging for debugging timer behavior. The module uses the `Logging` module for internal logging, allowing you to monitor callback errors and debug timer behavior.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
 
 ### Example
 
 ```ts
 import { Timers } from 'bf6-portal-utils/timers';
 
-let healthCheckInterval: number | undefined;
-let respawnTimeout: number | undefined;
+let healthCheckIntervalId = -1;
+let respawnTimeoutId = -1;
 
 export async function OnGameModeStarted(): Promise<void> {
     // Optional: Configure logging for timer callback error monitoring
@@ -2278,7 +2481,7 @@ export async function OnGameModeStarted(): Promise<void> {
 
     // Start a periodic health check every 5 seconds
     // Callbacks can be synchronous or asynchronous (return void or Promise<void>)
-    healthCheckInterval = Timers.setInterval(() => {
+    healthCheckIntervalId = Timers.setInterval(() => {
         const players = mod.GetPlayers();
         console.log(`Active players: ${players.length}`);
     }, 5_000);
@@ -2298,7 +2501,7 @@ export async function OnPlayerDied(
     weapon: mod.WeaponUnlock
 ): Promise<void> {
     // Schedule a respawn after 10 seconds
-    respawnTimeout = Timers.setTimeout(() => {
+    respawnTimeoutId = Timers.setTimeout(() => {
         mod.SpawnPlayer(victim, mod.GetRandomSpawnPoint(mod.GetTeam(victim)));
     }, 10_000);
 }
@@ -2306,15 +2509,15 @@ export async function OnPlayerDied(
 export async function OnPlayerDeployed(eventPlayer: mod.Player): Promise<void> {
     // Cancel the respawn timeout if the player already spawned.
     // You can use `clearTimeout`, `clearInterval`, or `clear` - they all work the same.
-    Timers.clear(respawnTimeout);
-    respawnTimeout = undefined;
+    Timers.clear(respawnTimeoutId);
+    respawnTimeoutId = -1;
 }
 
 export async function OnGameModeEnded(): Promise<void> {
     // Clean up intervals when the game mode ends.
     // You can use `clearTimeout`, `clearInterval`, or `clear` - they all work the same.
-    Timers.clear(healthCheckInterval);
-    healthCheckInterval = undefined;
+    Timers.clear(healthCheckIntervalId);
+    healthCheckIntervalId = -1;
 
     // Optional: Check how many timers are still active (useful for debugging)
     const activeCount = Timers.getActiveTimerCount();
@@ -2345,305 +2548,96 @@ export async function OnGameModeStarted(): Promise<void> {
 
 ---
 
-## Module: ui
+## Module: transitions
 
-This TypeScript `UI` namespace wraps Battlefield Portal's `mod` UI APIs with an object-oriented interface, providing strongly typed helpers, convenient defaults, ergonomic getters/setters, and automatic management of various UI mechanics for building complex HUDs, panels, and interactive buttons. The module subscribes to `OnPlayerUIButtonEvent` via the `Events` module at load time, so button events are dispatched automatically and you must use the `Events` module for all other game event subscription.
+The `Transitions` namespace provides stateless, deterministic, side-effect-free mathematical functions for animations and physics in Battlefield Portal experiences. It has zero external dependencies and does not rely on game ticks or runtime UI state.
 
-> **Note** You **must** use the `Events` module as your only mechanism to subscribe to game events. Do not implement or export any Battlefield Portal event handler functions (`OnPlayerUIButtonEvent`, `OnPlayerDeployed`, etc.) in your code. The `Events` module owns those hooks and this module relies on it; only one implementation of each event handler can exist per project. See the [Events module — Known Limitations & Caveats](../events/README.md#known-limitations--caveats).
+Key features include:
 
-### Example
+- **Linear Interpolation (`lerp`)** – Precise interpolation with support for negative values and extrapolation.
+- **Frozen Easing Library (`Transitions.Easing`)** – Pure easing curves (`linear`, `inQuad`, `outQuad`, `inOutQuad`, `outExpo`, `outBounce`, `ease`, `easeIn`, `easeOut`, `easeInOut`).
+- **Configurable Cubic Bezier Generator (`Transitions.cubicBezier`)** – High-precision `cubicBezier(p1x, p1y, p2x, p2y)` curve generator using Newton-Raphson iterations with bisection fallback.
+- **Zero-Allocation Spring Physics (`Transitions.calculateSpring`)** – Damped harmonic physics with sub-stepped semi-implicit Euler integration, configurable physical constants, and optional `out` parameter for zero-allocation performance in tight loops.
+- **Zero-Allocation Decay Physics (`Transitions.calculateDecay`)** – Continuous-time exponential friction decay integration with exact closed-form displacement and zero-allocation `out` parameter reuse.
+- **Keyframe Interpolation (`Transitions.interpolateKeyframes`)** – Multi-segment timeline interpolation with boundary clamping and optional per-segment easing curves.
 
-```ts
-import { Events } from 'bf6-portal-utils/events';
-import { UI } from 'bf6-portal-utils/ui';
-import { UIContainer } from 'bf6-portal-utils/ui/components/container';
-import { UITextButton } from 'bf6-portal-utils/ui/components/text-button';
-
-let testMenu: UIContainer | undefined;
-
-// The UI module subscribes to OnPlayerUIButtonEvent via Events automatically. Use Events for your game logic.
-Events.OnPlayerDeployed.subscribe((eventPlayer: mod.Player) => {
-    if (!testMenu) {
-        // Can include children upon construction of the container.
-        testMenu = new UIContainer({
-            position: { x: 0, y: 0 },
-            size: { width: 200, height: 300 },
-            anchor: mod.UIAnchor.Center,
-            receiver: eventPlayer,
-            visible: true,
-            uiInputModeWhenVisible: true,
-            childrenParams: [
-                {
-                    type: UITextButton,
-                    position: { x: 0, y: 0 },
-                    size: { width: 200, height: 50 },
-                    anchor: mod.UIAnchor.TopCenter,
-                    bgColor: UI.COLORS.GREY_25,
-                    baseColor: UI.COLORS.BLACK,
-                    onClick: (player: mod.Player) => {
-                        // Do something (sync or async; CallbackHandler catches errors)
-                    },
-                    message: mod.Message(mod.stringkeys.ui.buttons.option1),
-                    textSize: 36,
-                    textColor: UI.COLORS.WHITE,
-                } as UIContainer.ChildParams<UITextButton.Params>,
-                {
-                    type: UITextButton,
-                    position: { x: 0, y: 50 },
-                    size: { width: 200, height: 50 },
-                    anchor: mod.UIAnchor.TopCenter,
-                    bgColor: UI.COLORS.GREY_25,
-                    baseColor: UI.COLORS.BLACK,
-                    onClick: (player: mod.Player) => {
-                        // Do something (sync or async; CallbackHandler catches errors)
-                    },
-                    message: mod.Message(mod.stringkeys.ui.buttons.option2),
-                    textSize: 36,
-                    textColor: UI.COLORS.WHITE,
-                } as UIContainer.ChildParams<UITextButton.Params>,
-            ],
-        });
-
-        // And even add a child to the container.
-        new UITextButton({
-            parent: testMenu,
-            position: { x: 0, y: 0 },
-            size: { width: 50, height: 50 },
-            anchor: mod.UIAnchor.BottomCenter,
-            bgColor: UI.COLORS.GREY_25,
-            baseColor: UI.COLORS.BLACK,
-            onClick: (player: mod.Player) => {
-                testMenu?.hide();
-            },
-            message: mod.Message(mod.stringkeys.ui.buttons.close),
-            textSize: 36,
-            textColor: UI.COLORS.WHITE,
-        });
-    }
-
-    testMenu?.show();
-});
-```
-
-### Method Chaining Example
-
-All setter methods return the instance, allowing you to chain multiple operations:
+### Examples
 
 ```ts
-import { UIButton } from 'bf6-portal-utils/ui/components/button';
-import { UIText } from 'bf6-portal-utils/ui/components/text';
+import { Transitions } from 'bf6-portal-utils/transitions';
 
-const button = new UIButton({
-    position: { x: 100, y: 200 },
-    size: { width: 200, height: 50 },
-    onClick: (player) => {
-        // Handle click (sync or async; errors are caught and logged by CallbackHandler)
-    },
-});
+// 1. Linear interpolation
+const mid = Transitions.lerp(0, 100, 0.5); // 50
 
-// Chain multiple setters together
-button
-    .setPosition({ x: 150, y: 250 })
-    .setSize({ width: 250, height: 60 })
-    .setBaseColor(UI.COLORS.BLUE)
-    .setBaseAlpha(0.9)
-    .setEnabled(true)
-    .show();
+// 2. Pure easing curves
+const quad = Transitions.Easing.outQuad(0.5); // 0.75
+const standardEase = Transitions.Easing.ease(0.5);
 
-// Or update text content with chaining
-const text = new UIText({
-    message: mod.Message(mod.stringkeys.labels.hello), // 'Hello'
-    position: { x: 0, y: 0 },
-});
+// 3. Custom cubic bezier curve generator
+const customEase = Transitions.cubicBezier(0.25, 0.1, 0.25, 1);
+const easedProgress = customEase(0.4);
 
-text.setMessage(mod.Message(mod.stringkeys.labels.updated)) // 'Updated'
-    .setPosition({ x: 10, y: 20 })
-    .setBgColor(UI.COLORS.WHITE)
-    .setBgAlpha(0.5)
-    .show();
+// 4. Spring physics calculation (with zero-allocation scratch target)
+const scratch: Transitions.SpringResult = { value: 0, velocity: 0 };
+const result = Transitions.calculateSpring(
+    currentValue,
+    targetValue,
+    currentVelocity,
+    dt,
+    170, // stiffness
+    26, // damping
+    scratch // writes to scratch without heap allocation
+);
 
-// You can also use individual x, y, width, height properties
-text.setX(10).setY(20).setWidth(100).setHeight(50).show();
+// 5. Exponential decay physics calculation
+const decayScratch: Transitions.DecayResult = { value: 0, velocity: 0 };
+const decayResult = Transitions.calculateDecay(
+    currentValue,
+    currentVelocity,
+    dt,
+    0.997, // deceleration coefficient per ms
+    decayScratch
+);
+
+// 6. Multi-segment keyframe interpolation
+const keyframes: Transitions.Keyframe[] = [
+    { time: 0.0, value: 0, easing: Transitions.Easing.inQuad },
+    { time: 0.5, value: 100 },
+    { time: 1.0, value: 20 },
+];
+const currentVal = Transitions.interpolateKeyframes(keyframes, 0.25);
 ```
 
-### Parent-Child Management Example
+---
 
-Elements automatically manage parent-child relationships. When you create an element with a parent, move it between parents, or delete it, the parent's `children` array is automatically updated:
+## Module: base-button
 
-```ts
-import { UIContainer } from 'bf6-portal-utils/ui/components/container';
-import { UIText } from 'bf6-portal-utils/ui/components/text';
-
-// Create containers
-const container1 = new UIContainer({ position: { x: 0, y: 0 }, size: { width: 200, height: 200 } });
-const container2 = new UIContainer({ position: { x: 200, y: 0 }, size: { width: 200, height: 200 } });
-
-// Create a text element as a child of container1
-const text = new UIText({
-    message: mod.Message(mod.stringkeys.labels.hello), // 'Hello'
-    parent: container1,
-});
-
-console.log(container1.children.length); // 1
-console.log(container2.children.length); // 0
-
-// Move the text element to container2
-text.setParent(container2);
-// Or: text.parent = container2;
-
-console.log(container1.children.length); // 0 (automatically removed)
-console.log(container2.children.length); // 1 (automatically added)
-
-// Delete the text element
-text.delete();
-
-console.log(container2.children.length); // 0 (automatically removed)
-```
-
-### Custom UI Elements
-
-Custom elements (like checkboxes, dropdowns, clocks, progress bars, etc.) can be built by extending the `Element` class and accepting a `params` object that extends the `ElementParams` interface as the sole argument to their constructor. They can use the protected `_logging` member to log messages within the UI namespace, and should use `_isDeletedCheck()` to protect setter operations from being called on deleted elements. Custom button-like components should implement the `Button` interface and register themselves using `UI.registerButton()` during construction.
-
-### Element Behavior Conventions
-
-The following behaviors apply to the built-in UI elements in this repository. Custom elements that extend `Element` should ideally implement these conventions for consistency, but doing so is not guaranteed. Custom implementations may differ, and edge cases may exist.
-
-- **Parent-Child Relationships**: When you create child elements via `childrenParams` (on containers), they automatically receive the container as their parent. When you instantiate a child element with a parent, it's automatically added to the parent's `children` array. The parent's `children` array is automatically maintained.
-
-- **Recursive Deletion**: Calling `delete()` on a container recursively deletes all child elements before deleting the container itself.
-
-- **Children Storage**: Children are stored internally as a `Set<Element>` but exposed as an array via the `children` getter.
-
-- **Receiver Inheritance**: Child elements automatically inherit their parent's receiver unless explicitly specified in their constructor parameters.
-
-**Method Chaining Example:**
-
-All properties support both normal setter syntax and method chaining:
-
-```ts
-import { UIContainer } from 'bf6-portal-utils/ui/components/container';
-
-const container = new UIContainer({
-    /* ... */
-});
-
-// Normal setter syntax (does not return the instance)
-container.bgAlpha = 0.8;
-container.visible = true;
-container.position = { x: 100, y: 200 };
-
-// Method chaining (returns the instance for chaining)
-container
-    .setPosition({ x: 100, y: 200 })
-    .setSize({ width: 300, height: 400 })
-    .setBgColor(UI.COLORS.BLUE)
-    .setBgAlpha(0.8)
-    .setAnchor(mod.UIAnchor.TopLeft)
-    .show();
-```
-
-## UI Input Mode Management
-
-The `uiInputModeWhenVisible` property provides automatic management of UI input mode (which is what allows a player to click on UI buttons), eliminating the need to manually call `mod.EnableUIInputMode` in most cases. When enabled on an element, the UI module automatically handles enabling and disabling UI input mode based on the element's visibility state.
-
-### Usage Example
-
-```ts
-import { UIContainer } from 'bf6-portal-utils/ui/components/container';
-import { UITextButton } from 'bf6-portal-utils/ui/components/text-button';
-
-// Create a menu with interactive buttons
-const menu = new UIContainer({
-    position: { x: 0, y: 0 },
-    size: { width: 300, height: 400 },
-    receiver: player,
-    uiInputModeWhenVisible: true, // Enable automatic UI input mode management
-    childrenParams: [
-        {
-            type: UITextButton,
-            position: { x: 0, y: 0 },
-            size: { width: 200, height: 50 },
-            message: mod.Message(mod.stringkeys.labels.button1), // 'Button 1'
-            onClick: async (p) => {
-                // Handle click
-            },
-        } as UIContainer.ChildParams<UITextButton.Params>,
-        {
-            type: UITextButton,
-            position: { x: 0, y: 60 },
-            size: { width: 200, height: 50 },
-            message: mod.Message(mod.stringkeys.labels.button2), // 'Button 2'
-            onClick: async (p) => {
-                // Handle click
-            },
-        } as UIContainer.ChildParams<UITextButton.Params>,
-    ],
-});
-
-// Simply show/hide the menu—UI input mode is managed automatically
-menu.show(); // UI input mode is enabled for the player
-
-// ... user interacts with buttons ...
-menu.hide(); // UI input mode is disabled for the player (when no other requesters exist)
-
-// You can also enable/disable the feature dynamically
-menu.uiInputModeWhenVisible = false; // Disable automatic management
-
-// ... later ...
-menu.uiInputModeWhenVisible = true; // Re-enable automatic management
-```
-
-### When to Use
-
-- **Enable `uiInputModeWhenVisible`** only on elements that you actually intend to toggle between visible and not visible. For example, if you have a container with 4 buttons and only the container's visibility will change, set `uiInputModeWhenVisible: true` only on the container, not on the individual buttons.
-- **Disable `uiInputModeWhenVisible`** (default) for elements that won't have their visibility toggled, or when you prefer to manage UI input mode manually (not recommended).
-- For complex UIs with multiple interactive sections, you can enable it on parent containers to manage input mode for entire UI hierarchies.
-
-### Notes
-
-- The default value is `false`. Enable it explicitly when needed.
-- The property can be changed at runtime via the getter/setter or `setUiInputModeWhenVisible()` method.
-- The system may not work correctly if you try to manually enable or disable UI input mode with `mod.EnableUIInputMode` in any scope, since there is no way to query the runtime to determine the current UI input mode state. It's best to let the UI system handle it entirely. Alternatively, you can choose to handle UI input mode entirely yourself, as long as you do not have any elements with `uiInputModeWhenVisible` enabled.
-- Elements inherit their receiver from their parent, so UI input mode management respects the receiver hierarchy.
-
-## Event Wiring & Lifecycle
-
-- The UI module subscribes to `OnPlayerUIButtonEvent` via the `Events` module at load time, so button presses are dispatched automatically.
-- Use the returned `Element` helpers to hide/show instead of calling `mod.SetUIWidgetVisible` manually.
-- All properties support both normal setter syntax (e.g., `element.bgAlpha = 0.8;`) and method chaining (e.g., `element.setBgAlpha(0.8).show()`). Method chaining is useful when you want to apply multiple changes in sequence.
-- Always call `delete()` when removing widgets to prevent stale references inside Battlefield Portal. The element will automatically be removed from its parent's `children` array. For containers, `delete()` recursively deletes all children before deleting the container itself.
-- The `parent` property in parameter interfaces must be a `UI.Parent` (i.e., `UI.Root` or `UI.Container`). Parent-child relationships are automatically managed.
-- **Parent-child relationships** are automatically maintained:
-    - When an element is created with a parent, it's automatically added to the parent's `children` Set via `attachChild()`. Children are stored internally as a `Set<Element>` but exposed as an array via the `children` getter.
-    - When an element's `parent` is changed (via setter or `setParent()`), it's removed from the old parent's children via `detachChild()` and added to the new parent's children via `attachChild()`.
-    - When an element is deleted, it's automatically removed from its parent's `children` Set via `detachChild()`.
-- **Receiver inheritance**: Elements automatically adopt their parent's receiver if a receiver is not explicitly specified in constructor parameters. The `getReceiver()` utility function handles this logic, checking the parent's receiver and using it if no receiver is provided. Console warnings are displayed if an element's receiver is incompatible with its parent's receiver.
-- **Deleted element protection**: Once an element is deleted (via `delete()`), the `_deleted` flag is set to `true` and all setter operations are blocked using `_isDeletedCheck()`. Attempts to modify deleted elements will log a warning and return early without performing the operation.
+`UIBaseButton` is the abstract base class for all interactive button widgets in the UI subsystem (including [`UIButton`](../button/README.md) and [`UIContentButton`](../content-button/README.md)). It encapsulates the Structure-of-Arrays (SoA) button table, generational slot allocation, event handler management, and centralized `Events.OnPlayerUIButtonEvent` routing.
 
 ---
 
 ## Module: button
 
-The `UIButton` component creates an interactive button widget. Buttons support multiple visual states (base, disabled, pressed, hover, focused) with customizable colors and opacities for each state. Buttons automatically register themselves with the UI system so their `onClick` handlers are called when pressed. The `onClick` handler may be synchronous or asynchronous; while asynchronous handlers are generally preferred elsewhere (e.g. to avoid blocking event stacks), for `UIButton` the only handler running for the source event is this button's `onClick` (due to unique global button referencing), so synchronous callbacks—even long-running ones—are safe.
-
-## Quick Start
+The `UIButton` component creates an interactive button widget. Buttons support multiple visual states (base, disabled, pressed, focused) with customizable colors and opacities for each state. Buttons automatically register themselves with the UI system. Instead of a single `onClick` callback, you attach optional handlers for **click down** (`onClickDown`), **click up** (`onClickUp`), **focus in** (`onFocusIn`), and **focus out** (`onFocusOut`), which map to `mod.UIButtonEvent` `ButtonDown`, `ButtonUp`, `FocusIn`, and `FocusOut`. Handlers may be synchronous or asynchronous; while asynchronous handlers are generally preferred elsewhere (e.g. to avoid blocking event stacks), for `UIButton` the only handler running for a given engine event is this button’s handler for that event (due to unique global button referencing), so synchronous callbacks—even long-running ones—are safe.
 
 ```ts
 import { UIButton } from 'bf6-portal-utils/ui/components/button';
 import { UI } from 'bf6-portal-utils/ui';
 
-// Create a button with a click handler (sync or async)
+// Typical “activate on release” behavior uses onClickUp
 const button = new UIButton({
     position: { x: 0, y: 0 },
     size: { width: 200, height: 50 },
-    onClick: (player: mod.Player) => {
-        console.log(`Player ${mod.GetObjId(player)} clicked the button!`);
+    onClickUp: (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} released the button!`);
     },
     visible: true,
 });
 
 // Update button state
-button.setEnabled(false).setBaseColor(UI.COLORS.BLUE).setPressedColor(UI.COLORS.GREEN);
+button.enabled = false;
+button.baseColor = UI.COLORS.BLUE;
+button.pressedColor = UI.COLORS.GREEN;
 ```
 
 ---
@@ -2661,13 +2655,13 @@ import { UI } from 'bf6-portal-utils/ui';
 const container = new UIContainer({
     position: { x: 0, y: 0 },
     size: { width: 300, height: 400 },
-    anchor: mod.UIAnchor.Center,
+    anchor: UI.Anchor.Center,
     bgColor: UI.COLORS.BF_GREY_3,
     bgAlpha: 0.9,
     childrenParams: [
         {
             type: UIText,
-            message: mod.Message(mod.stringkeys.text.helloWorld), // 'Hello World'
+            label: mod.Message(mod.stringkeys.text.helloWorld), // 'Hello World'
             position: { x: 0, y: 0 },
             textSize: 48,
         } as UIContainer.ChildParams<UIText.Params>,
@@ -2702,7 +2696,7 @@ const container = new UIContainer({
     childrenParams: [
         {
             type: UIText,
-            message: mod.Message(mod.stringkeys.text.hello), // 'Hello'
+            label: mod.Message(mod.stringkeys.text.hello), // 'Hello'
             position: { x: 0, y: 0 },
         } as UIContainer.ChildParams<UIText.Params>,
     ],
@@ -2724,21 +2718,21 @@ import { UI } from 'bf6-portal-utils/ui';
 const button = new UIContainerButton({
     position: { x: 0, y: 0 },
     size: { width: 200, height: 100 },
-    onClick: async (player: mod.Player) => {
-        console.log(`Player ${mod.GetObjId(player)} clicked!`);
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} released the button!`);
     },
     childrenParams: [
         {
             type: UIText,
-            message: mod.Message(mod.stringkeys.labels.click), // 'Click'
-            anchor: mod.UIAnchor.TopCenter,
+            label: mod.Message(mod.stringkeys.labels.click), // 'Click'
+            anchor: UI.Anchor.TopCenter,
             position: { x: 0, y: 0 },
             size: { width: 200, height: 50 },
         } as UIContainer.ChildParams<UIText.Params>,
         {
             type: UIText,
-            message: mod.Message(mod.stringkeys.labels.me), // 'Me'
-            anchor: mod.UIAnchor.BottomCenter,
+            label: mod.Message(mod.stringkeys.labels.me), // 'Me'
+            anchor: UI.Anchor.BottomCenter,
             position: { x: 0, y: 0 },
             size: { width: 200, height: 50 },
         } as UIContainer.ChildParams<UIText.Params>,
@@ -2754,36 +2748,30 @@ console.log(innerContainer.children.length); // 2
 ## Usage Notes
 
 - **Inner Container Access**: Use the `innerContainer` property to access the container that holds child elements. You can use this to manage children, check the children array, etc.
-
 - **Child Management**: Children added via `childrenParams` are automatically added to the inner container, not the button itself. Use `innerContainer.children` to access them.
-
 - **Size Synchronization**: Setting `width`, `height`, or `size` automatically updates all three layers (outer container, button, and inner container), ensuring they stay in sync.
-
 - **Padding**: The component supports padding, which creates space between the button border and the inner container. The inner container's size is automatically adjusted to account for padding.
-
-- **Method Chaining**: All setter methods return `this`, allowing you to chain multiple operations together.
 
 ---
 
 ## Module: content-button
 
-The `UIContentButton` is an abstract base class for buttons that contain content elements (such as text or images). It handles the common pattern of wrapping a `UIButton` and a content element in a `UIContainer`, managing their layout, and delegating properties appropriately. It is need because natively (via the `mod` namespace UI widget system) only containers can be parents and have children.
+The `UIContentButton` is an abstract base class for buttons that contain content elements (such as text or images). It handles the common pattern of wrapping a button and a content element in a container, managing their layout, and exposing properties cleanly on its prototype. It is needed because natively (via the `mod` namespace UI widget system) only containers can be parents and have children.
 
-This class is not meant to be instantiated directly. Instead, use concrete implementations like `UITextButton` which extends this class, or build you own buttons with content by extending this class.
+This class is not meant to be instantiated directly. Instead, use concrete implementations like `UITextButton` which extends this class, or build your own buttons with content by extending this class.
 
 ## Architecture
 
-`UIContentButton` creates a three-layer structure:
+`UIContentButton` manages a unified three-layer visual structure as a single lightweight class handle:
 
-1. **Container** (outermost) – The `UIContentButton` instance itself, which extends `UI.Element` and wraps everything
-2. **Button** (middle) – An internal `UIButton` instance that handles button interactions
-3. **Content** (innermost) – A content element (e.g., `UIText`, `UIImage`) that displays the button's content
+1. **Container Widget** (outermost) – The wrapping native container widget
+2. **Button Widget** (middle) – The interactive native button widget handling click and focus events via an SoA button slot
+3. **Content Element** (innermost) – The content element handle (e.g., `UIText`, `UIImage`) displaying the button's content
 
 The class automatically:
 
-- Creates and manages the internal button and content elements
-- Delegates button properties (colors, alphas, `onClick`, etc.) to the instance
-- Delegates content properties (specified via the `contentProperties` parameter) to the instance
+- Creates and manages the native container, button, and inner content elements
+- Forwards button properties (colors, alphas, `onClickDown`, `onClickUp`, `onFocusIn`, `onFocusOut`, etc.) to the button widget
 - Manages padding and size synchronization between all three layers
 - Handles cleanup when deleted
 
@@ -2794,28 +2782,20 @@ The constructor is `protected` and should not be called directly. Concrete imple
 ```ts
 protected constructor(
     params: UIContentButton.Params,
-    createContent: (parent: UI.Parent, width: number, height: number) => TContent,
-    contentProperties: TContentProps
+    createContent: (parent: UI.Parent, width: number, height: number) => TContent
 )
 ```
 
 **Parameters:**
 
-- `params` – The parameters for the content button, including all `UIButton.Params` plus optional `padding`
+- `params` – The parameters for the content button, including all `UIBaseButton.Params` plus optional `padding`
 - `createContent` – A factory function that creates the content element given a parent and a prescribed inner width and height
-- `contentProperties` – An array of property names to delegate from the content element to the instance
 
 ## Usage Notes
 
 - **Padding Handling**: When padding is set, the content element's size is automatically reduced by `padding * 2` (once for each side) to account for the padding space.
-
 - **Size Synchronization**: Setting `width`, `height`, or `size` automatically updates all three layers (container, button, and content), ensuring they stay in sync.
-
-- **Property Delegation**: Properties are delegated using `UI.delegateProperties()`, which creates getters, setters, and setter methods (e.g., `setPropertyName`) for each property.
-
-- **Internal Elements**: The internal button and content elements are not exposed as public properties. Access them through the delegated properties instead.
-
-- **Method Chaining**: All setter methods return `this`, allowing you to chain multiple operations together.
+- **Content Access**: Access the wrapped content element using `button.content` or `button.getContent()`. Internal widget handles and content references are managed via static Structure-of-Arrays (SoA) tables.
 
 ---
 
@@ -2839,25 +2819,26 @@ const gadgetImage = new UIGadgetImage({
 
 ## Module: gadget-image-button
 
-The `UIGadgetImageButton` component creates a button with an integrated gadget image. It combines `UIButton` and `UIGadgetImage` functionality into a single element, wrapping both in a container and delegating properties appropriately.
+The `UIGadgetImageButton` component creates a button with an integrated gadget image. It combines `UIButton` and `UIGadgetImage` functionality into a single element, wrapping both in a container and forwarding properties cleanly.
 
 ```ts
 import { UIGadgetImageButton } from 'bf6-portal-utils/ui/components/gadget-image-button';
 import { UI } from 'bf6-portal-utils/ui';
 
-// Create a gadget image button with a click handler
+// Create a gadget image button with a handler (e.g. onClickUp)
 const button = new UIGadgetImageButton({
     position: { x: 0, y: 0 },
     size: { width: 64, height: 64 },
     gadget: mod.Gadgets.Misc_Defibrillator,
-    onClick: async (player: mod.Player) => {
-        console.log(`Player ${mod.GetObjId(player)} clicked the Defibrillator button!`);
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} activated the Defibrillator button!`);
     },
     visible: true,
 });
 
 // Update button properties
-button.setEnabled(false).setBaseColor(UI.COLORS.BLUE);
+button.enabled = false;
+button.baseColor = UI.COLORS.BLUE;
 ```
 
 ---
@@ -2872,7 +2853,7 @@ import { UI } from 'bf6-portal-utils/ui';
 
 // Create an image
 const image = new UIImage({
-    imageType: mod.UIImageType.QuestionMark,
+    imageType: UI.ImageType.QuestionMark,
     position: { x: 0, y: 0 },
     size: { width: 64, height: 64 },
     imageColor: UI.COLORS.WHITE,
@@ -2881,7 +2862,9 @@ const image = new UIImage({
 });
 
 // Update image properties
-image.setImageType(mod.UIImageType.Icon).setImageColor(UI.COLORS.BLUE).setImageAlpha(0.8);
+image.imageType = UI.ImageType.CrownOutline;
+image.imageColor = UI.COLORS.BLUE;
+image.imageAlpha = 0.8;
 ```
 
 ---
@@ -2894,20 +2877,123 @@ The `UIImageButton` component creates a button with an integrated image. It comb
 import { UIImageButton } from 'bf6-portal-utils/ui/components/image-button';
 import { UI } from 'bf6-portal-utils/ui';
 
-// Create an image button with a click handler
+// Create an image button with a handler (e.g. onClickUp)
 const button = new UIImageButton({
     position: { x: 0, y: 0 },
     size: { width: 64, height: 64 },
-    imageType: mod.UIImageType.CrownOutline,
+    imageType: UI.ImageType.CrownOutline,
     imageColor: UI.COLORS.WHITE,
-    onClick: async (player: mod.Player) => {
-        console.log(`Player ${mod.GetObjId(player)} clicked!`);
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} released the button!`);
     },
     visible: true,
 });
 
 // Update button and image properties
-button.setImageType(mod.UIImageType.CrownSolid).setImageColor(UI.COLORS.BLUE).setEnabled(false);
+button.imageType = UI.ImageType.CrownSolid;
+button.imageColor = UI.COLORS.BLUE;
+button.enabled = false;
+```
+
+---
+
+## Module: pixel-art
+
+The `UIPixelArt` component renders high-fidelity pixel art, icons, sprites, and logos inside Battlefield Portal using a custom, high-efficiency binary image format. It transforms raster images into optimized native UI container widgets through **2D Rectilinear Painter's Decomposition**, drastically reducing engine draw calls (typically by 60%–90%).
+
+The component supports both Base64 and ultra-compact Base122 string payloads, full alpha transparency or 1-bit cutouts, 8-bit/16-bit coordinate systems, and runtime monochrome color tinting.
+
+### Rendering Pixel Art
+
+```ts
+import { UIPixelArt } from 'bf6-portal-utils/ui/components/pixel-art';
+import { UI } from 'bf6-portal-utils/ui';
+
+// Create a pixel art element from an encoded Base64 or Base122 string
+const pixelArt = new UIPixelArt({
+    data: '<BASE64_OR_BASE122_DATA>',
+    position: { x: 0, y: -100 },
+    size: { width: 128, height: 128 },
+    anchor: UI.Anchor.Center,
+    visible: true,
+});
+
+// Access diagnostic properties
+console.log(`Draw calls: ${pixelArt.drawCallCount}`);
+
+// Dynamic color tinting (monochrome pixel art)
+pixelArt.setColor(UI.COLORS.GOLD);
+
+// Delete when done (frees all native child widgets and internal pool slot)
+pixelArt.delete();
+```
+
+---
+
+## Module: pixel-art-button
+
+The `UIPixelArtButton` component creates an interactive UI button with embedded high-performance pixel art graphics. It combines `UIBaseButton` interactivity and `UIPixelArt` two-tier throttled rendering into a single unified element, wrapping both in a root container with optional padding.
+
+For monochrome pixel art, the button automatically synchronizes foreground tint colors when the button transitions between enabled and disabled states.
+
+```ts
+import { UIPixelArtButton } from 'bf6-portal-utils/ui/components/pixel-art-button';
+import { UI } from 'bf6-portal-utils/ui';
+
+// Create a pixel art button with an interaction handler
+const button = new UIPixelArtButton({
+    x: 100,
+    y: 100,
+    width: 64,
+    height: 64,
+    data: '<BASE64_OR_BASE122_DATA>',
+    pixelArtColor: UI.COLORS.WHITE,
+    pixelArtDisabledColor: UI.COLORS.BF_GREY_2,
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player clicked pixel art button!`);
+    },
+    visible: true,
+});
+
+// Update button and pixel art properties dynamically
+button.pixelArtColor = UI.COLORS.GOLD;
+button.enabled = false;
+```
+
+---
+
+## Module: qr-code
+
+The `UIQRCode` component renders optimized QR codes using pure dark module rendering with **greedy rectilinear rectangle merging** and **bounded overlap**. The Base Container exclusively owns the background canvas, while the QR Container renders exclusively dark module rectangles with zero light cutout widgets. This drastically minimizes native engine draw calls (reducing widget counts by 60%–85% compared to naive pixel-by-pixel rendering) while consuming only **1 slot** in the global `UI.MAX_ELEMENTS` pool.
+
+The component encodes text payloads into QR codes using a built-in, zero-dependency QR matrix encoder supporting standard QR Versions 1–40 and error correction levels L, M, Q, and H.
+
+### Rendering a QR Code
+
+```ts
+import { UIQRCode } from 'bf6-portal-utils/ui/components/qr-code';
+import { UI } from 'bf6-portal-utils/ui';
+
+// Create a QR code from a URL, text string, or raw bytes
+const qrCode = new UIQRCode({
+    data: 'https://discord.gg/example',
+    ecc: UIQRCode.ECC.Medium,
+    position: { x: 0, y: 0 },
+    size: { width: 200, height: 200 },
+    anchor: UI.Anchor.Center,
+    color: UI.COLORS.BLACK,
+    bgColor: UI.COLORS.WHITE,
+    margin: 4, // 4 modules quiet zone
+});
+
+// Access diagnostic properties
+console.log(`Draw calls: ${qrCode.drawCallCount}`);
+
+// Dynamic dark module color mutation (throttled across server ticks)
+qrCode.setColor(UI.COLORS.BLUE);
+
+// Delete when done (frees all native widgets and slot)
+qrCode.delete();
 ```
 
 ---
@@ -2922,64 +3008,56 @@ import { UI } from 'bf6-portal-utils/ui';
 
 // Create a text element
 const text = new UIText({
-    message: mod.Message(mod.stringkeys.labels.helloWorld), // 'Hello World'
+    label: mod.Message(mod.stringkeys.labels.helloWorld), // 'Hello World'
     position: { x: 0, y: 0 },
     textSize: 48,
     textColor: UI.COLORS.WHITE,
     visible: true,
 });
 
-// Update the message
-text.setMessage(mod.Message(mod.stringkeys.labels.updatedText)) // 'Updated Text'
-    .setTextColor(UI.COLORS.BLUE)
-    .setTextSize(36);
+// Update text properties
+text.label = mod.Message(mod.stringkeys.labels.updatedText); // 'Updated Text'
+text.textColor = UI.COLORS.BLUE;
+text.textSize = 36;
 ```
 
 ## Usage Notes
 
 - **Message Opaqueness**: `mod.Message` is opaque and cannot be unpacked into a string. You can only create messages using `mod.Message()` with numbers, `mod.Player` types, or strings in `mod.stringkeys`.
-
 - **Padding**: Unlike the base `Element` class, `UIText` supports padding. This allows you to add space around the text content.
-
-- **Method Chaining**: All setter methods return `this`, allowing you to chain multiple operations together.
 
 ---
 
 ## Module: text-button
 
-The `UITextButton` component creates a button with integrated text content. It combines `UIButton` and `UIText` functionality into a single element, wrapping both in a container and delegating properties appropriately. The text automatically updates its appearance when the button is enabled or disabled.
+The `UITextButton` component creates a button with integrated text content. It combines `UIButton` and `UIText` functionality into a single element, wrapping both in a container and forwarding properties cleanly. The text automatically updates its appearance when the button is enabled or disabled.
 
 ```ts
 import { UITextButton } from 'bf6-portal-utils/ui/components/text-button';
 import { UI } from 'bf6-portal-utils/ui';
 
-// Create a text button with a click handler
+// Create a text button with a handler (e.g. onClickUp for activate-on-release)
 const button = new UITextButton({
     position: { x: 0, y: 0 },
     size: { width: 200, height: 50 },
-    message: mod.Message(mod.stringkeys.labels.clickMe), // 'Click Me'
-    onClick: async (player: mod.Player) => {
-        console.log(`Player ${mod.GetObjId(player)} clicked!`);
+    label: mod.Message(mod.stringkeys.labels.clickMe), // 'Click Me'
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} released the button!`);
     },
     visible: true,
 });
 
 // Update button and text properties
-button
-    .setMessage(mod.Message(mod.stringkeys.labels.updated)) // 'Updated'
-    .setTextColor(UI.COLORS.WHITE)
-    .setEnabled(false);
+button.label = mod.Message(mod.stringkeys.labels.updated);
+button.textColor = UI.COLORS.WHITE;
+button.enabled = false;
 ```
 
 ## Usage Notes
 
 - **Automatic Text State Management**: When the button's `enabled` state changes, the text automatically switches between `textColor`/`textAlpha` (enabled) and `textDisabledColor`/`textDisabledAlpha` (disabled).
-
 - **Size Synchronization**: Setting `width`, `height`, or `size` automatically updates the button widget and text size, accounting for padding.
-
 - **Padding**: The component supports padding, which creates space between the button border and the text content. The text size is automatically adjusted to account for padding.
-
-- **Method Chaining**: All setter methods return `this`, allowing you to chain multiple operations together.
 
 ---
 
@@ -3010,43 +3088,305 @@ const weaponImage = new UIWeaponImage({
 
 ## Module: weapon-image-button
 
-The `UIWeaponImageButton` component creates a button with an integrated weapon image. It combines `UIButton` and `UIWeaponImage` functionality into a single element, wrapping both in a container and delegating properties appropriately.
+The `UIWeaponImageButton` component creates a button with an integrated weapon image. It combines `UIButton` and `UIWeaponImage` functionality into a single element, wrapping both in a container and forwarding properties cleanly.
+
+```ts
+import { UIWeaponImageButton } from 'bf6-portal-utils/ui/components/weapon-image-button';
+import { UI } from 'bf6-portal-utils/ui';
+
+const weaponPackage = mod.CreateNewWeaponPackage();
+mod.AddAttachmentToWeaponPackage(mod.WeaponAttachments.Ammo_Hollow_Point, weaponPackage);
+mod.AddAttachmentToWeaponPackage(mod.WeaponAttachments.Barrel_11_Extended, weaponPackage);
+mod.AddAttachmentToWeaponPackage(mod.WeaponAttachments.Magazine_25rnd_Magazine, weaponPackage);
+mod.AddAttachmentToWeaponPackage(mod.WeaponAttachments.Right_Laser_Light_Combo_Green, weaponPackage);
+
+// Create a weapon image button with a handler (e.g. onClickUp)
+const button = new UIWeaponImageButton({
+    position: { x: 0, y: 0 },
+    size: { width: 128, height: 64 },
+    weapon: mod.Weapons.AssaultRifle_AK4D,
+    weaponPackage: weaponPackage,
+    onClickUp: async (player: mod.Player) => {
+        console.log(`Player ${mod.GetObjId(player)} activated the AK24 button!`);
+    },
+    visible: true,
+});
+
+// Update button properties
+button.enabled = false;
+button.baseColor = UI.COLORS.BLUE;
+```
+
+---
+
+## Module: ui
+
+This TypeScript `UI` namespace wraps Battlefield Portal's `mod` UI APIs with an ergonomic, object-oriented interface backed by a high-performance **Structure-of-Arrays (SoA)** core. It provides strongly typed helpers, convenient defaults, ergonomic getters/setters, pre-allocated coordinate/dimension buffers, and automatic management of UI mechanics for building complex HUDs, panels, and interactive buttons with near-zero garbage collection overhead.
+
+> **Note:** Since this module imports and relies on `Events`, **you must use the `Events` module as your only mechanism to subscribe to game events**—do not implement or export any Battlefield Portal event handler functions in your own code. See the [Events module](../events/README.md#known-limitations--caveats).
+
+### Example
+
+```ts
+import { Events } from 'bf6-portal-utils/events';
+import { UI } from 'bf6-portal-utils/ui';
+import { UIContainer } from 'bf6-portal-utils/ui/components/container';
+import { UITextButton } from 'bf6-portal-utils/ui/components/text-button';
+
+let testMenu: UIContainer | undefined;
+
+// The UI module subscribes to OnPlayerUIButtonEvent via Events automatically. Use Events for your game logic.
+Events.OnPlayerDeployed.subscribe((eventPlayer: mod.Player) => {
+    if (!testMenu) {
+        // Can include children upon construction of the container.
+        testMenu = new UIContainer({
+            position: { x: 0, y: 0 },
+            size: { width: 200, height: 300 },
+            anchor: UI.Anchor.Center,
+            receiver: eventPlayer,
+            visible: true,
+            uiInputModeWhenVisible: true,
+            childrenParams: [
+                {
+                    type: UITextButton,
+                    position: { x: 0, y: 0 },
+                    size: { width: 200, height: 50 },
+                    anchor: UI.Anchor.TopCenter,
+                    bgColor: UI.COLORS.GREY_25,
+                    baseColor: UI.COLORS.BLACK,
+                    onClickUp: (player: mod.Player) => {
+                        // Do something on release (sync or async; CallbackHandler catches errors)
+                    },
+                    label: mod.Message(mod.stringkeys.ui.buttons.option1),
+                    textSize: 36,
+                    textColor: UI.COLORS.WHITE,
+                } as UIContainer.ChildParams<UITextButton.Params>,
+                {
+                    type: UITextButton,
+                    position: { x: 0, y: 50 },
+                    size: { width: 200, height: 50 },
+                    anchor: UI.Anchor.TopCenter,
+                    bgColor: UI.COLORS.GREY_25,
+                    baseColor: UI.COLORS.BLACK,
+                    onClickUp: (player: mod.Player) => {
+                        // Do something on release (sync or async; CallbackHandler catches errors)
+                    },
+                    label: mod.Message(mod.stringkeys.ui.buttons.option2),
+                    textSize: 36,
+                    textColor: UI.COLORS.WHITE,
+                } as UIContainer.ChildParams<UITextButton.Params>,
+            ],
+        });
+
+        // And even add a child to the container.
+        new UITextButton({
+            parent: testMenu,
+            position: { x: 0, y: 0 },
+            size: { width: 50, height: 50 },
+            anchor: UI.Anchor.BottomCenter,
+            bgColor: UI.COLORS.GREY_25,
+            baseColor: UI.COLORS.BLACK,
+            onClickUp: (player: mod.Player) => {
+                if (testMenu) {
+                    testMenu.visible = false;
+                }
+            },
+            label: mod.Message(mod.stringkeys.ui.buttons.close),
+            textSize: 36,
+            textColor: UI.COLORS.WHITE,
+        });
+    }
+
+    if (testMenu) {
+        testMenu.visible = true;
+    }
+});
+```
+
+### Property Setter & Chaining Example
+
+Update properties directly via standard TypeScript property assignment or chain method calls:
+
+```ts
+import { UIButton } from 'bf6-portal-utils/ui/components/button';
+import { UIText } from 'bf6-portal-utils/ui/components/text';
+
+const button = new UIButton({
+    position: { x: 100, y: 200 },
+    size: { width: 200, height: 50 },
+    onClickUp: (player) => {
+        // Handle release (sync or async; errors are caught and logged by CallbackHandler)
+    },
+});
+
+// Update properties directly or via fluent chaining
+button
+    .setPosition({ x: 150, y: 250 })
+    .setSize({ width: 250, height: 60 })
+    .setBaseColor(UI.COLORS.BLUE)
+    .setBaseAlpha(0.9)
+    .setEnabled(true)
+    .setVisible(true);
+
+// Or update text content
+const text = new UIText({
+    label: mod.Message(mod.stringkeys.labels.hello), // 'Hello'
+    position: { x: 0, y: 0 },
+});
+
+text.setLabel(mod.Message(mod.stringkeys.labels.updated))
+    .setPosition({ x: 10, y: 20 })
+    .setBgColor(UI.COLORS.WHITE)
+    .setBgAlpha(0.5)
+    .setVisible(true);
+```
+
+### Zero-Allocation Queries with `out` Parameters
+
+To avoid GC overhead when querying positions or sizes, pass pre-allocated destination objects:
+
+```ts
+const scratchPos: UI.Position = { x: 0, y: 0 };
+const scratchSize: UI.Size = { width: 0, height: 0 };
+
+// Populates and returns scratchPos without any new heap allocation
+container.getPosition(scratchPos);
+
+// Populates and returns scratchSize without any new heap allocation
+container.getSize(scratchSize);
+```
+
+### Parent-Child Management Example
+
+Elements automatically manage parent-child relationships. When you create an element with a parent, move it between parents, or delete it, the hierarchy is automatically maintained in the Left-Child Right-Sibling (LCRS) tree:
+
+```ts
+import { UIContainer } from 'bf6-portal-utils/ui/components/container';
+import { UIText } from 'bf6-portal-utils/ui/components/text';
+
+// Create containers
+const container1 = new UIContainer({ position: { x: 0, y: 0 }, size: { width: 200, height: 200 } });
+const container2 = new UIContainer({ position: { x: 200, y: 0 }, size: { width: 200, height: 200 } });
+
+// Create a text element as a child of container1
+const text = new UIText({
+    label: mod.Message(mod.stringkeys.labels.hello), // 'Hello'
+    parent: container1,
+});
+
+console.log(container1.children?.length); // 1
+console.log(container2.children?.length); // 0
+
+// Move the text element to container2 via parent setter or setParent
+text.parent = container2;
+
+console.log(container1.children?.length); // 0 (automatically removed)
+console.log(container2.children?.length); // 1 (automatically added)
+
+// Delete the text element
+text.delete();
+
+console.log(container2.children?.length); // 0 (automatically removed)
+```
+
+## UI Input Mode Management
+
+The `uiInputModeWhenVisible` property provides automatic management of UI input mode (enabling the player's cursor to click buttons), eliminating the need to manually call `mod.EnableUIInputMode`.
+
+### How It Works
+
+- **Reference Counting**: Each receiver tracks active requesters. UI input mode is enabled when the first requesting element becomes visible, and disabled when all requesting elements are hidden or deleted.
+- **Receiver-Aware Scope**: Automatically targets the appropriate scope (`Global`, `Team`, or `Player`) based on the element's receiver.
+- **Lifecycle Integration**: Input mode requests are automatically registered or released when:
+    - An element is created with `visible: true` and `uiInputModeWhenVisible: true`.
+    - `element.visible` is toggled.
+    - `element.uiInputModeWhenVisible` is toggled on a visible element.
+    - `element.delete()` is called.
+
+### Usage Example
+
+```ts
+import { UIContainer } from 'bf6-portal-utils/ui/components/container';
+import { UITextButton } from 'bf6-portal-utils/ui/components/text-button';
+
+// Create a menu with interactive buttons
+const menu = new UIContainer({
+    position: { x: 0, y: 0 },
+    size: { width: 300, height: 400 },
+    receiver: player,
+    uiInputModeWhenVisible: true, // Auto-manages cursor input mode for player
+    childrenParams: [
+        {
+            type: UITextButton,
+            position: { x: 0, y: 0 },
+            size: { width: 200, height: 50 },
+            label: mod.Message(mod.stringkeys.labels.button1),
+            onClickUp: async (p) => {
+                // Handle click
+            },
+        } as UIContainer.ChildParams<UITextButton.Params>,
+    ],
+});
+
+// Showing the menu enables UI input mode for the player
+menu.visible = true;
+
+// Hiding the menu disables UI input mode (when no other requesters exist)
+menu.visible = false;
+```
+
+### When to Use
+
+- **Enable `uiInputModeWhenVisible: true`** on the root container of an interactive menu whose visibility you toggle. Do not enable it on individual child buttons inside that container.
+- Avoid mixing manual `mod.EnableUIInputMode` calls with `uiInputModeWhenVisible`, as the engine provides no way to query input mode state.
 
 ---
 
 ## Module: vectors
 
-The `Vectors` namespace provides a small set of helpers for working with 3D vectors in Battlefield Portal experiences. Because `mod.Vector` is opaque—you must use the functional `mod` API (`mod.XComponentOf`, `mod.YComponentOf`, `mod.ZComponentOf`, `mod.CreateVector`, `mod.VectorAdd`, etc.) to read or build vectors—it can be clunky to write and reason about vector math. This module defines a transparent `Vector3` type (`{ x, y, z }`) and complementary functions so you can work with plain objects when convenient, and convert to or from `mod.Vector` only when calling Portal APIs.
+The `Vectors` namespace provides lightweight, high-performance utilities for working with 3D vectors in Battlefield Portal experiences. Because `mod.Vector` is an opaque engine type requiring functional Portal API calls (`mod.XComponentOf`, `mod.YComponentOf`, `mod.ZComponentOf`, `mod.CreateVector`), performing vector math can be cumbersome. This module defines a transparent, mutable `Vector3` type (`{ x, y, z }`) and a comprehensive suite of math operations.
 
-Key features include conversion between `Vector3` and `mod.Vector`, arithmetic (add, subtract, multiply, divide), distance, truncation, degree/radian and rotation helpers, string formatting for debugging, and a type guard `isVector3()`. The namespace is self-contained and has no dependencies on other `bf6-portal-utils` modules.
+Key features include:
+
+- **Transparent Vector3 Type** – Plain `{ x: number, y: number, z: number }` structures for clear, intuitive math.
+- **Zero-Allocation `out` Parameters** – Every transformative and arithmetic function accepts an optional `out?: Vector3` target destination to eliminate intermediate heap allocations in high-frequency game loops.
+- **Engine Boundary Conversions** – Seamless bridging to and from opaque `mod.Vector` via `toVector()` and `toVector3()`.
+- **Comprehensive Vector Math** – Addition, subtraction, multiplication, division, dot product, cross product, normalization, linear interpolation (`lerp`), axis rotation (Rodrigues' formula), and distance calculations.
+- **Fast Squared Comparisons** – `distanceSquared()` and `lengthSquared()` avoid costly `Math.sqrt()` invocations in proximity and threshold checks.
+- **String Formatting & Type Guards** – Safe runtime validation with `isVector3()` and debugging string formatting via `getVectorString()`.
 
 ### Example
 
 ```ts
 import { Vectors } from 'bf6-portal-utils/vectors';
 
-// Work with transparent Vector3 for math
-const playerPos: Vectors.Vector3 = {
-    x: 100,
-    y: 0,
-    z: 200,
-};
-
+// Work with transparent Vector3 objects
+const playerPos: Vectors.Vector3 = { x: 100, y: 0, z: 200 };
 const offset: Vectors.Vector3 = { x: 10, y: 0, z: 0 };
-const newPos = Vectors.add(playerPos, offset);
+
+// Standard immutable math
+const targetPos = Vectors.add(playerPos, offset);
+
+// Zero-allocation in-place math (reuses targetPos)
+Vectors.multiply(offset, 2, targetPos);
 
 // Convert to mod.Vector when calling Portal APIs
-mod.SpawnObject(asset, Vectors.toVector(newPos), Vectors.ZERO_VECTOR);
+mod.SpawnObject(asset, Vectors.toVector(targetPos), Vectors.toVector(Vectors.ZERO));
 
-// Or convert from mod.Vector when reading from the engine
-const position = mod.GetSoldierState(player, mod.SoldierStateVector.GetPosition);
-const pos3 = Vectors.toVector3(position);
-const distance = Vectors.distance(pos3, targetPos3);
+// Fast distance check without square roots
+const distSq = Vectors.distanceSquared(playerPos, targetPos);
+if (distSq <= 4) {
+    // Within 2 meters (2^2 = 4)
+}
 
 // Rotation from compass degrees (e.g. spawner orientation)
-const rotation = Vectors.getRotationVector(90);
-mod.SetVehicleSpawnerRotation(spawner, rotation);
+mod.SetVehicleSpawnerRotation(spawner, Vectors.toVector(Vectors.getRotationVector(90)));
 
-// Debug string
-console.log(Vectors.getVector3String(pos3, 2)); // e.g. "<100.00, 0.00, 200.00>"
+// Convert from mod.Vector with zero-allocation target reuse
+const scratch: Vectors.Vector3 = { x: 0, y: 0, z: 0 };
+const soldierPos = mod.GetObjectPosition(player);
+Vectors.toVector3(soldierPos, scratch);
+
+// Debug formatting
+console.log(Vectors.getVectorString(scratch, 2)); // "<100.00, 0.00, 200.00>"
 ```
