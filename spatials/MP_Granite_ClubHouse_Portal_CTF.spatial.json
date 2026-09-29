@@ -366,202 +366,27 @@
             "name": "CombatVolume",
             "type": "PolygonVolume",
             "id": "CombatArea/CombatVolume",
-            "height": 0,
+            "height": 50,
             "points": [
                 {
-                    "x": -573.976,
+                    "x": -444.29346,
                     "y": 182.889,
-                    "z": -918.816
+                    "z": -544.08716
                 },
                 {
-                    "x": -669.197,
+                    "x": -336.2605,
                     "y": 182.889,
-                    "z": -900.386
+                    "z": -488.56085
                 },
                 {
-                    "x": -784.896,
+                    "x": -246.7178,
                     "y": 182.889,
-                    "z": -853.288
+                    "z": -694.6199
                 },
                 {
-                    "x": -819.648,
+                    "x": -405.1081,
                     "y": 182.889,
-                    "z": -738.856
-                },
-                {
-                    "x": -831.387,
-                    "y": 182.889,
-                    "z": -628.659
-                },
-                {
-                    "x": -800.322,
-                    "y": 182.889,
-                    "z": -530.623
-                },
-                {
-                    "x": -746.482,
-                    "y": 182.889,
-                    "z": -478.034
-                },
-                {
-                    "x": -709.228,
-                    "y": 182.889,
-                    "z": -470.842
-                },
-                {
-                    "x": -665.589,
-                    "y": 182.889,
-                    "z": -426.189
-                },
-                {
-                    "x": -561.689,
-                    "y": 182.889,
-                    "z": -330.081
-                },
-                {
-                    "x": -533.02,
-                    "y": 182.889,
-                    "z": -344.415
-                },
-                {
-                    "x": -476.706,
-                    "y": 182.889,
-                    "z": -272.743
-                },
-                {
-                    "x": -406.058,
-                    "y": 182.889,
-                    "z": -214.382
-                },
-                {
-                    "x": -323.123,
-                    "y": 182.889,
-                    "z": -190.832
-                },
-                {
-                    "x": -259.642,
-                    "y": 182.889,
-                    "z": -196.976
-                },
-                {
-                    "x": -173.635,
-                    "y": 182.889,
-                    "z": -206.191
-                },
-                {
-                    "x": -136.775,
-                    "y": 182.889,
-                    "z": -230.764
-                },
-                {
-                    "x": -97.8676,
-                    "y": 182.889,
-                    "z": -232.812
-                },
-                {
-                    "x": -73.2944,
-                    "y": 182.889,
-                    "z": -241.003
-                },
-                {
-                    "x": -56.9122,
-                    "y": 182.889,
-                    "z": -261.48
-                },
-                {
-                    "x": -40.53,
-                    "y": 182.889,
-                    "z": -291.173
-                },
-                {
-                    "x": -30.2911,
-                    "y": 182.889,
-                    "z": -314.723
-                },
-                {
-                    "x": -24.1478,
-                    "y": 182.889,
-                    "z": -331.105
-                },
-                {
-                    "x": -20.0523,
-                    "y": 182.889,
-                    "z": -349.535
-                },
-                {
-                    "x": -24.1478,
-                    "y": 182.889,
-                    "z": -366.941
-                },
-                {
-                    "x": -32.3389,
-                    "y": 182.889,
-                    "z": -394.586
-                },
-                {
-                    "x": -16.9805,
-                    "y": 182.889,
-                    "z": -405.849
-                },
-                {
-                    "x": -22.0999,
-                    "y": 182.889,
-                    "z": -437.589
-                },
-                {
-                    "x": -28.2434,
-                    "y": 182.889,
-                    "z": -487.76
-                },
-                {
-                    "x": -43.6018,
-                    "y": 182.889,
-                    "z": -516.429
-                },
-                {
-                    "x": -41.5539,
-                    "y": 182.889,
-                    "z": -591.172
-                },
-                {
-                    "x": -31.315,
-                    "y": 182.889,
-                    "z": -666.94
-                },
-                {
-                    "x": -20.0523,
-                    "y": 182.889,
-                    "z": -720.182
-                },
-                {
-                    "x": -28.2434,
-                    "y": 182.889,
-                    "z": -805.165
-                },
-                {
-                    "x": -50.769,
-                    "y": 182.889,
-                    "z": -873.765
-                },
-                {
-                    "x": -225.947,
-                    "y": 182.889,
-                    "z": -1007.52
-                },
-                {
-                    "x": -316.3,
-                    "y": 182.889,
-                    "z": -1018.02
-                },
-                {
-                    "x": -438.714,
-                    "y": 182.889,
-                    "z": -1005.34
-                },
-                {
-                    "x": -494.732,
-                    "y": 182.889,
-                    "z": -973.633
+                    "z": -731.3416
                 }
             ]
         },
@@ -592,7 +417,7 @@
             "ObjId": 0
         },
         {
-            "name": "MCOM_TEAM2",
+            "name": "BOMB_TEAM2",
             "ObjId": 102,
             "type": "Basketball_01",
             "right": {
@@ -615,10 +440,10 @@
                 "y": 188.26201,
                 "z": -581.3563
             },
-            "id": "MCOM_TEAM2"
+            "id": "BOMB_TEAM2"
         },
         {
-            "name": "MCOM_TEAM1",
+            "name": "BOMB_TEAM1",
             "ObjId": 101,
             "type": "Basketball_01",
             "right": {
@@ -641,7 +466,390 @@
                 "y": 192.08838,
                 "z": -668.03064
             },
+            "id": "BOMB_TEAM1"
+        },
+        {
+            "name": "MCOM_TEAM1",
+            "ObjId": 201,
+            "RequiresCarriableToArm": true,
+            "type": "MCOM",
+            "right": {
+                "x": 1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+            },
+            "position": {
+                "x": -341.1705,
+                "y": 192.07329,
+                "z": -667.8837
+            },
             "id": "MCOM_TEAM1"
+        },
+        {
+            "name": "MCOM_TEAM2",
+            "ObjId": 202,
+            "StartingOwnerTeamID": "Team1",
+            "RequiresCarriableToArm": true,
+            "type": "MCOM",
+            "right": {
+                "x": -0.9978692,
+                "y": 0,
+                "z": -0.065246366
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0.065246366,
+                "y": 0,
+                "z": -0.9978692
+            },
+            "position": {
+                "x": -370.67456,
+                "y": 188.65091,
+                "z": -580.6802
+            },
+            "id": "MCOM_TEAM2"
+        },
+        {
+            "name": "CaptureAreaTrigger_TEAM2",
+            "ObjId": 302,
+            "Area": "CaptureArea_TEAM2",
+            "type": "AreaTrigger",
+            "right": {
+                "x": 0.1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 0.1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 0.1
+            },
+            "position": {
+                "x": -369.24164,
+                "y": 188.28856,
+                "z": -581.735
+            },
+            "id": "CaptureAreaTrigger_TEAM2",
+            "linked": [
+                "Area"
+            ]
+        },
+        {
+            "name": "CaptureArea_TEAM2",
+            "type": "PolygonVolume",
+            "id": "CaptureArea_TEAM2",
+            "height": 5,
+            "points": [
+                {
+                    "x": -374.4359774,
+                    "y": 187.8542,
+                    "z": -588.3756522
+                },
+                {
+                    "x": -377.7027122,
+                    "y": 187.8542,
+                    "z": -578.9242826
+                },
+                {
+                    "x": -368.2513426,
+                    "y": 187.8542,
+                    "z": -575.6575478
+                },
+                {
+                    "x": -364.9846078,
+                    "y": 187.8542,
+                    "z": -585.1089174
+                }
+            ]
+        },
+        {
+            "name": "CaptureArea_TEAM1",
+            "type": "PolygonVolume",
+            "id": "CaptureArea_TEAM1",
+            "height": 5,
+            "points": [
+                {
+                    "x": -345.58211915,
+                    "y": 191.4162,
+                    "z": -673.77772335
+                },
+                {
+                    "x": -348.18042335,
+                    "y": 191.4162,
+                    "z": -664.12118085
+                },
+                {
+                    "x": -338.52388085,
+                    "y": 191.4162,
+                    "z": -661.52287665
+                },
+                {
+                    "x": -335.92557665,
+                    "y": 191.4162,
+                    "z": -671.17941915
+                }
+            ]
+        },
+        {
+            "name": "CaptureAreaTrigger_TEAM1",
+            "ObjId": 301,
+            "Area": "CaptureArea_TEAM1",
+            "type": "AreaTrigger",
+            "right": {
+                "x": 0.1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 0.1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 0.1
+            },
+            "position": {
+                "x": -342.3211,
+                "y": 192.10628,
+                "z": -667.95557
+            },
+            "id": "CaptureAreaTrigger_TEAM1",
+            "linked": [
+                "Area"
+            ]
+        },
+        {
+            "name": "CapturePoint_TEAM1",
+            "InitialOwner": "Team1",
+            "ObjId": 401,
+            "OutlineShape": "Circle",
+            "CaptureArea": "CaptureArea_TEAM1",
+            "type": "CapturePoint",
+            "right": {
+                "x": 1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+            },
+            "position": {
+                "x": -340.3925,
+                "y": 191.97763,
+                "z": -669.59937
+            },
+            "id": "CapturePoint_TEAM1",
+            "linked": [
+                "CaptureArea"
+            ]
+        },
+        {
+            "name": "CapturePoint_TEAM2",
+            "InitialOwner": "Team2",
+            "ObjId": 402,
+            "OutlineShape": "Circle",
+            "CaptureArea": "CaptureArea_TEAM2",
+            "type": "CapturePoint",
+            "right": {
+                "x": 1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+            },
+            "position": {
+                "x": -372.81097,
+                "y": 188.22491,
+                "z": -582.4505
+            },
+            "id": "CapturePoint_TEAM2",
+            "linked": [
+                "CaptureArea"
+            ]
+        },
+        {
+            "name": "SectorTeam2",
+            "ObjId": 502,
+            "AutoEnableVehicles": false,
+            "MinimapOutline_Sector_ProjectToGround": false,
+            "MinimapOutline_RetreatFrom_ProjectToGround": false,
+            "MinimapOutline_AdvanceFrom_ProjectToGround": false,
+            "HQs": [
+                "TEAM_2_HQ"
+            ],
+            "CapturePoints": [
+                "CapturePoint_TEAM2"
+            ],
+            "MCOMs": [
+                "MCOM_TEAM2"
+            ],
+            "SectorArea": "SectorAreaTeam2",
+            "type": "Sector",
+            "right": {
+                "x": 1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+            },
+            "position": {
+                "x": -368.1154,
+                "y": 188.56726,
+                "z": -582.02155
+            },
+            "id": "SectorTeam2",
+            "linked": [
+                "SectorArea",
+                "HQs",
+                "CapturePoints",
+                "MCOMs"
+            ]
+        },
+        {
+            "name": "SectorAreaTeam2",
+            "type": "PolygonVolume",
+            "id": "SectorAreaTeam2",
+            "height": 50,
+            "points": [
+                {
+                    "x": -409.920913,
+                    "y": 187.20943,
+                    "z": -612.369614
+                },
+                {
+                    "x": -411.10054,
+                    "y": 187.20943,
+                    "z": -551.067124
+                },
+                {
+                    "x": -337.987685,
+                    "y": 187.20943,
+                    "z": -512.428452
+                },
+                {
+                    "x": -311.69621,
+                    "y": 187.20943,
+                    "z": -560.6346291
+                }
+            ]
+        },
+        {
+            "name": "SectorAreaTeam1",
+            "type": "PolygonVolume",
+            "id": "SectorAreaTeam1",
+            "height": 50,
+            "points": [
+                {
+                    "x": -370.553352,
+                    "y": 191.60286,
+                    "z": -711.03772
+                },
+                {
+                    "x": -385.851814,
+                    "y": 191.60286,
+                    "z": -663.7491453
+                },
+                {
+                    "x": -315.786506,
+                    "y": 191.60286,
+                    "z": -639.171814
+                },
+                {
+                    "x": -295.103034,
+                    "y": 191.60286,
+                    "z": -684.406677
+                }
+            ]
+        },
+        {
+            "name": "SectorTeam1",
+            "ObjId": 501,
+            "AutoEnableVehicles": false,
+            "MinimapOutline_Sector_ProjectToGround": false,
+            "MinimapOutline_RetreatFrom_ProjectToGround": false,
+            "MinimapOutline_AdvanceFrom_ProjectToGround": false,
+            "HQs": [
+                "TEAM_1_HQ"
+            ],
+            "CapturePoints": [
+                "CapturePoint_TEAM1"
+            ],
+            "MCOMs": [
+                "MCOM_TEAM1"
+            ],
+            "SectorArea": "SectorAreaTeam1",
+            "type": "Sector",
+            "right": {
+                "x": 1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+            },
+            "position": {
+                "x": -340.7855,
+                "y": 192.0159,
+                "z": -670.821
+            },
+            "id": "SectorTeam1",
+            "linked": [
+                "SectorArea",
+                "HQs",
+                "CapturePoints",
+                "MCOMs"
+            ]
         }
     ],
     "Static": [

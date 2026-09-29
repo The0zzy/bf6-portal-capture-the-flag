@@ -1,13 +1,16 @@
 {
     "ctf": {
-        "title": "Capture the Flag",
+        "title": "Capture the Intel",
         "init1": "Game will start soon(TM)...",
         "scoreboard": {
+            "team1": "Team 1",
+            "team2": "Team 2",
             "col1": "Kills",
             "col2": "Deaths",
             "col3": "Assists",
             "col4": "Intel Captured"
         },
-        "scored": "Team {} ( {} ) captured some intel!"
+        "scored": "Team {} ( {} ) captured some intel!",
+        "picked_up": "Team {} ( {} ) picked up the intel!"
     }
 }
