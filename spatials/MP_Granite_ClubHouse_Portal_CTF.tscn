@@ -8,16 +8,16 @@
 [ext_resource type="PackedScene" path="res://static/MP_Granite_ClubHouse_Portal_Terrain.tscn" id="6_ffv8g"]
 [ext_resource type="PackedScene" path="res://static/MP_Granite_ClubHouse_Portal_Assets.tscn" id="7_0ca2y"]
 [ext_resource type="PackedScene" uid="uid://b75wlya1kk2rs" path="res://addons/bf_portal/portal_tools/types/WaterPlane/WaterPlane.tscn" id="8_31wxy"]
-[ext_resource type="PackedScene" path="res://objects/props/Basketball_01.tscn" id="9_b1774"]
 [ext_resource type="PackedScene" path="res://objects/gameplay/rush/MCOM.tscn" id="10_430lv"]
 [ext_resource type="PackedScene" path="res://objects/gameplay/common/AreaTrigger.tscn" id="11_ker16"]
 [ext_resource type="PackedScene" path="res://objects/gameplay/conquest/CapturePoint.tscn" id="12_ker16"]
+[ext_resource type="PackedScene" path="res://objects/gameplay/obliteration/Bomb.tscn" id="13_0ca2y"]
 [ext_resource type="PackedScene" path="res://objects/gameplay/common/Sector.tscn" id="13_ffv8g"]
 
 [node name="MP_Granite_ClubHouse_Portal" type="Node3D" unique_id=701376957]
 
 [node name="TEAM_1_HQ" parent="." unique_id=1597585053 node_paths=PackedStringArray("HQArea", "InfantrySpawns") instance=ExtResource("1_n7kn5")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -332.9567, 192.17722, -675.55896)
+transform = Transform3D(0.9380644, 0, -0.34646088, 0, 1, 0, 0.34646088, 0, 0.9380644, -336.86374, 192.17722, -677.9466)
 AltTeam = 0
 ObjId = 1
 HQArea = NodePath("HQ_Team1")
@@ -40,7 +40,7 @@ transform = Transform3D(-0.0428871, 0, 0.99908, 0, 1, 0, -0.99908, 0, -0.0428871
 transform = Transform3D(0.0841819, 0, -0.99645, 0, 1, 0, 0.99645, 0, 0.0841819, 0, 0, 3)
 
 [node name="TEAM_2_HQ" parent="." unique_id=34604342 node_paths=PackedStringArray("HQArea", "InfantrySpawns") instance=ExtResource("1_n7kn5")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -377.034, 188.72305, -570.6346)
+transform = Transform3D(0.9436682, 0, -0.33089322, 0, 1, 0, 0.33089322, 0, 0.9436682, -376.2632, 188.72305, -568.3558)
 Team = 2
 AltTeam = 0
 ObjId = 2
@@ -88,24 +88,14 @@ metadata/_edit_lock_ = true
 transform = Transform3D(8192, 0, 0, 0, 1, 0, 0, 0, 8192, 0, 99.873, 0)
 metadata/_edit_lock_ = true
 
-[node name="BOMB_TEAM2" parent="." unique_id=595803257 instance=ExtResource("9_b1774")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -371.79706, 188.26201, -581.3563)
-ObjId = 102
-
-[node name="BOMB_TEAM1" parent="." unique_id=271717816 instance=ExtResource("9_b1774")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -340.25873, 192.08838, -668.03064)
-ObjId = 101
-
 [node name="MCOM_TEAM1" parent="." unique_id=2045355789 instance=ExtResource("10_430lv")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -341.1705, 192.07329, -667.8837)
 ObjId = 201
-RequiresCarriableToArm = true
 
 [node name="MCOM_TEAM2" parent="." unique_id=1821580746 instance=ExtResource("10_430lv")]
-transform = Transform3D(-0.9978692, 0, 0.065246366, 0, 1, 0, -0.065246366, 0, -0.9978692, -370.67456, 188.65091, -580.6802)
+transform = Transform3D(-0.9978692, 0, 0.065246366, 0, 1, 0, -0.065246366, 0, -0.9978692, -370.67456, 188.20576, -580.6802)
 ObjId = 202
 StartingOwnerTeamID = 1
-RequiresCarriableToArm = true
 
 [node name="CaptureAreaTrigger_TEAM2" parent="." unique_id=2100000761 node_paths=PackedStringArray("Area") instance=ExtResource("11_ker16")]
 transform = Transform3D(0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, -369.24164, 188.28856, -581.735)
@@ -136,6 +126,7 @@ CaptureArea = NodePath("../CaptureArea_TEAM1")
 [node name="CapturePoint_TEAM2" parent="." unique_id=900085122 node_paths=PackedStringArray("CaptureArea") instance=ExtResource("12_ker16")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -372.81097, 188.22491, -582.4505)
 InitialOwner = 2
+FlagPoleSize = 1
 ObjId = 402
 OutlineShape = 1
 CaptureArea = NodePath("../CaptureArea_TEAM2")
@@ -151,3 +142,14 @@ SectorArea = NodePath("../CombatArea/CombatVolume")
 HQs = [NodePath("../TEAM_1_HQ")]
 CapturePoints = [NodePath("../CapturePoint_TEAM1")]
 MCOMs = [NodePath("../MCOM_TEAM1")]
+
+[node name="BombTeam1" parent="." unique_id=227204744 node_paths=PackedStringArray("AllowedBombPlayspace") instance=ExtResource("13_0ca2y")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -340.07974, 192.48381, -667.6375)
+ObjId = 101
+Attacker_TeamID = 2
+AllowedBombPlayspace = NodePath("../CombatArea/CombatVolume")
+
+[node name="BombTeam2" parent="." unique_id=423060608 node_paths=PackedStringArray("AllowedBombPlayspace") instance=ExtResource("13_0ca2y")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -371.80154, 188.78377, -581.11945)
+ObjId = 102
+AllowedBombPlayspace = NodePath("../CombatArea/CombatVolume")

@@ -54,10 +54,10 @@ Events.OnGameModeStarted.subscribe(async () => {
     }
     mod.DisplayHighlightedWorldLogMessage(mod.Message(mod.stringkeys.ctf.title));
 
-    bombPosTeam1 = mod.GetObjectPosition(mod.GetSpatialObject(101));
-    bombPosTeam2 = mod.GetObjectPosition(mod.GetSpatialObject(102));
-    bombTeam1 = mod.SpawnObject(mod.RuntimeSpawn_Common.Bomb, bombPosTeam1, ZEROVECTOR);
-    bombTeam2 = mod.SpawnObject(mod.RuntimeSpawn_Common.Bomb, bombPosTeam2, ZEROVECTOR);
+    bombTeam1 = mod.GetBomb(101);
+    bombTeam2 = mod.GetBomb(102);
+    bombPosTeam1 = mod.GetObjectPosition(bombTeam1);
+    bombPosTeam2 = mod.GetObjectPosition(bombTeam2);
     // only team 2 is able to pick up the bomb at team 1's MCOM
     mod.SetBombTeam(bombTeam1, team2);
     // only team 1 is able to pick up the bomb at team 2's MCOM
@@ -69,8 +69,10 @@ Events.OnGameModeStarted.subscribe(async () => {
 
     mcomTeam1 = mod.GetMCOM(201);
     mcomTeam2 = mod.GetMCOM(202);
-    mod.EnableGameModeObjective(mcomTeam1, true);
-    mod.EnableGameModeObjective(mcomTeam2, true);
+    mod.EnableGameModeObjective(mcomTeam1, false);
+    mod.EnableGameModeObjective(mcomTeam2, false);
+    mod.SetMCOMArmType(mcomTeam1, mod.MCOMArmType.Bomb);
+    mod.SetMCOMArmType(mcomTeam2, mod.MCOMArmType.Bomb);
 
     captureAreaTeam1 = mod.GetAreaTrigger(301);
     captureAreaTeam2 = mod.GetAreaTrigger(302);
@@ -160,7 +162,7 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
     mod.SetBombWorldIconGlobalVisibility(bomb, true);
     let scoringTeam = mod.GetTeam(player);
     let mcomToActivate = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
-    // mod.EnableGameModeObjective(mcomToActivate, true);
+    mod.EnableGameModeObjective(mcomToActivate, true);
 
     const data = getPlayerData(player);
     data.score += 50;
@@ -178,7 +180,10 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
 Events.OnBombStateChanged.subscribe(async (bomb, state) => {
     if (state === mod.BombState.Resetting) {
         let mcomToDisable = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
-        // mod.EnableGameModeObjective(mcomToDisable, false);
+        mod.EnableGameModeObjective(mcomToDisable, false);
+    } else if (state === mod.BombState.Unspawned) {
+        mod.ForceBombReset(bomb);
+        mod.ForceBombSpawn(bomb);
     }
 });
 
