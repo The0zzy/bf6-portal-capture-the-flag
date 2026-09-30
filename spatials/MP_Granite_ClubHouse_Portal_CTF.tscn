@@ -68,7 +68,7 @@ CombatVolume = NodePath("CombatVolume")
 
 [node name="CombatVolume" parent="CombatArea" unique_id=1252475864 instance=ExtResource("2_b1774")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 182.889, 0)
-points = PackedVector2Array(-443.29346, -544.08716, -335.2605, -488.56085, -245.7178, -694.6199, -404.1081, -731.3416)
+points = PackedVector2Array(-435.36377, -585.35767, -311.8488, -539.10315, -270.67715, -661.0932, -393.17554, -706.3312)
 height = 50.0
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=293047640]
@@ -112,24 +112,25 @@ transform = Transform3D(0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, -369.24164, 188.28856, 
 ObjId = 302
 Area = NodePath("../CaptureArea_TEAM2")
 
+[node name="CaptureAreaTrigger_TEAM1" parent="." unique_id=2049461855 node_paths=PackedStringArray("Area") instance=ExtResource("11_ker16")]
+transform = Transform3D(0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, -342.3211, 192.10628, -667.95557)
+ObjId = 301
+Area = NodePath("../CaptureArea_TEAM1")
+
 [node name="CaptureArea_TEAM2" parent="." unique_id=1845001926 instance=ExtResource("2_b1774")]
 transform = Transform3D(0.94513696, 0, -0.32667348, 0, 1, 0, 0.32667348, 0, 0.94513696, -371.34366, 187.8542, -582.0166)
 height = 5.0
 
 [node name="CaptureArea_TEAM1" parent="." unique_id=131985057 instance=ExtResource("2_b1774")]
 transform = Transform3D(0.96565425, 0, -0.25983042, 0, 1, 0, 0.25983042, 0, 0.96565425, -342.053, 191.4162, -667.6503)
+points = PackedVector2Array(-1.6256409, -3.8336182, -2.1548767, 2.4468384, 4.2576904, 2.9406128, 4.551605, -3.5126343)
 height = 5.0
-
-[node name="CaptureAreaTrigger_TEAM1" parent="." unique_id=2049461855 node_paths=PackedStringArray("Area") instance=ExtResource("11_ker16")]
-transform = Transform3D(0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, -342.3211, 192.10628, -667.95557)
-ObjId = 301
-Area = NodePath("../CaptureArea_TEAM1")
 
 [node name="CapturePoint_TEAM1" parent="." unique_id=1066301167 node_paths=PackedStringArray("CaptureArea") instance=ExtResource("12_ker16")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -340.3925, 191.97763, -669.59937)
 InitialOwner = 1
 ObjId = 401
-OutlineShape = 1
+OutlineAbove16Points = true
 CaptureArea = NodePath("../CaptureArea_TEAM1")
 
 [node name="CapturePoint_TEAM2" parent="." unique_id=900085122 node_paths=PackedStringArray("CaptureArea") instance=ExtResource("12_ker16")]
@@ -139,36 +140,14 @@ ObjId = 402
 OutlineShape = 1
 CaptureArea = NodePath("../CaptureArea_TEAM2")
 
-[node name="SectorTeam2" parent="." unique_id=2145668174 node_paths=PackedStringArray("SectorArea", "HQs", "CapturePoints", "MCOMs") instance=ExtResource("13_ffv8g")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -368.1154, 188.56726, -582.02155)
-ObjId = 502
-AutoEnableVehicles = false
-MinimapOutline_Sector_ProjectToGround = false
-MinimapOutline_RetreatFrom_ProjectToGround = false
-MinimapOutline_AdvanceFrom_ProjectToGround = false
-SectorArea = NodePath("../SectorAreaTeam2")
-HQs = [NodePath("../TEAM_2_HQ")]
-CapturePoints = [NodePath("../CapturePoint_TEAM2")]
-MCOMs = [NodePath("../MCOM_TEAM2")]
-
-[node name="SectorAreaTeam2" parent="." unique_id=526449748 instance=ExtResource("2_b1774")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -353.8329, 187.20943, -561.8098)
-points = PackedVector2Array(-56.088013, -50.559814, -57.26764, 10.742676, 15.845215, 49.381348, 42.13669, 1.1751709)
-height = 50.0
-
-[node name="SectorAreaTeam1" parent="." unique_id=577184716 instance=ExtResource("2_b1774")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -339.7042, 191.60286, -667.92926)
-points = PackedVector2Array(-30.849152, -43.10846, -46.147614, 4.1801147, 23.917694, 28.757446, 44.601166, -16.477417)
-height = 50.0
-
-[node name="SectorTeam1" parent="." unique_id=1692052418 node_paths=PackedStringArray("SectorArea", "HQs", "CapturePoints", "MCOMs") instance=ExtResource("13_ffv8g")]
+[node name="Sector" parent="." unique_id=1692052418 node_paths=PackedStringArray("SectorArea", "HQs", "CapturePoints", "MCOMs") instance=ExtResource("13_ffv8g")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -340.7855, 192.0159, -670.821)
 ObjId = 501
 AutoEnableVehicles = false
 MinimapOutline_Sector_ProjectToGround = false
 MinimapOutline_RetreatFrom_ProjectToGround = false
 MinimapOutline_AdvanceFrom_ProjectToGround = false
-SectorArea = NodePath("../SectorAreaTeam1")
+SectorArea = NodePath("../CombatArea/CombatVolume")
 HQs = [NodePath("../TEAM_1_HQ")]
 CapturePoints = [NodePath("../CapturePoint_TEAM1")]
 MCOMs = [NodePath("../MCOM_TEAM1")]

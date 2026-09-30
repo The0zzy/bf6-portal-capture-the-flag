@@ -369,24 +369,24 @@
             "height": 50,
             "points": [
                 {
-                    "x": -444.29346,
+                    "x": -436.36377,
                     "y": 182.889,
-                    "z": -544.08716
+                    "z": -585.35767
                 },
                 {
-                    "x": -336.2605,
+                    "x": -312.8488,
                     "y": 182.889,
-                    "z": -488.56085
+                    "z": -539.10315
                 },
                 {
-                    "x": -246.7178,
+                    "x": -271.67715,
                     "y": 182.889,
-                    "z": -694.6199
+                    "z": -661.0932
                 },
                 {
-                    "x": -405.1081,
+                    "x": -394.17554,
                     "y": 182.889,
-                    "z": -731.3416
+                    "z": -706.3312
                 }
             ]
         },
@@ -554,6 +554,36 @@
             ]
         },
         {
+            "name": "CaptureAreaTrigger_TEAM1",
+            "ObjId": 301,
+            "Area": "CaptureArea_TEAM1",
+            "type": "AreaTrigger",
+            "right": {
+                "x": 0.1,
+                "y": 0,
+                "z": 0
+            },
+            "up": {
+                "x": 0,
+                "y": 0.1,
+                "z": 0
+            },
+            "front": {
+                "x": 0,
+                "y": 0,
+                "z": 0.1
+            },
+            "position": {
+                "x": -342.3211,
+                "y": 192.10628,
+                "z": -667.95557
+            },
+            "id": "CaptureAreaTrigger_TEAM1",
+            "linked": [
+                "Area"
+            ]
+        },
+        {
             "name": "CaptureArea_TEAM2",
             "type": "PolygonVolume",
             "id": "CaptureArea_TEAM2",
@@ -588,62 +618,32 @@
             "height": 5,
             "points": [
                 {
-                    "x": -345.58211915,
+                    "x": -342.6267164170332,
                     "y": 191.4162,
-                    "z": -673.77772335
+                    "z": -671.7746406655235
                 },
                 {
-                    "x": -348.18042335,
+                    "x": -344.7696288927251,
                     "y": 191.4162,
-                    "z": -664.12118085
+                    "z": -665.8474026179861
                 },
                 {
-                    "x": -338.52388085,
+                    "x": -338.70560382893717,
                     "y": 191.4162,
-                    "z": -661.52287665
+                    "z": -663.7044072672136
                 },
                 {
-                    "x": -335.92557665,
+                    "x": -336.7450340419533,
                     "y": 191.4162,
-                    "z": -671.17941915
+                    "z": -669.8596448016667
                 }
-            ]
-        },
-        {
-            "name": "CaptureAreaTrigger_TEAM1",
-            "ObjId": 301,
-            "Area": "CaptureArea_TEAM1",
-            "type": "AreaTrigger",
-            "right": {
-                "x": 0.1,
-                "y": 0,
-                "z": 0
-            },
-            "up": {
-                "x": 0,
-                "y": 0.1,
-                "z": 0
-            },
-            "front": {
-                "x": 0,
-                "y": 0,
-                "z": 0.1
-            },
-            "position": {
-                "x": -342.3211,
-                "y": 192.10628,
-                "z": -667.95557
-            },
-            "id": "CaptureAreaTrigger_TEAM1",
-            "linked": [
-                "Area"
             ]
         },
         {
             "name": "CapturePoint_TEAM1",
             "InitialOwner": "Team1",
             "ObjId": 401,
-            "OutlineShape": "Circle",
+            "OutlineAbove16Points": true,
             "CaptureArea": "CaptureArea_TEAM1",
             "type": "CapturePoint",
             "right": {
@@ -704,109 +704,7 @@
             ]
         },
         {
-            "name": "SectorTeam2",
-            "ObjId": 502,
-            "AutoEnableVehicles": false,
-            "MinimapOutline_Sector_ProjectToGround": false,
-            "MinimapOutline_RetreatFrom_ProjectToGround": false,
-            "MinimapOutline_AdvanceFrom_ProjectToGround": false,
-            "HQs": [
-                "TEAM_2_HQ"
-            ],
-            "CapturePoints": [
-                "CapturePoint_TEAM2"
-            ],
-            "MCOMs": [
-                "MCOM_TEAM2"
-            ],
-            "SectorArea": "SectorAreaTeam2",
-            "type": "Sector",
-            "right": {
-                "x": 1,
-                "y": 0,
-                "z": 0
-            },
-            "up": {
-                "x": 0,
-                "y": 1,
-                "z": 0
-            },
-            "front": {
-                "x": 0,
-                "y": 0,
-                "z": 1
-            },
-            "position": {
-                "x": -368.1154,
-                "y": 188.56726,
-                "z": -582.02155
-            },
-            "id": "SectorTeam2",
-            "linked": [
-                "SectorArea",
-                "HQs",
-                "CapturePoints",
-                "MCOMs"
-            ]
-        },
-        {
-            "name": "SectorAreaTeam2",
-            "type": "PolygonVolume",
-            "id": "SectorAreaTeam2",
-            "height": 50,
-            "points": [
-                {
-                    "x": -409.920913,
-                    "y": 187.20943,
-                    "z": -612.369614
-                },
-                {
-                    "x": -411.10054,
-                    "y": 187.20943,
-                    "z": -551.067124
-                },
-                {
-                    "x": -337.987685,
-                    "y": 187.20943,
-                    "z": -512.428452
-                },
-                {
-                    "x": -311.69621,
-                    "y": 187.20943,
-                    "z": -560.6346291
-                }
-            ]
-        },
-        {
-            "name": "SectorAreaTeam1",
-            "type": "PolygonVolume",
-            "id": "SectorAreaTeam1",
-            "height": 50,
-            "points": [
-                {
-                    "x": -370.553352,
-                    "y": 191.60286,
-                    "z": -711.03772
-                },
-                {
-                    "x": -385.851814,
-                    "y": 191.60286,
-                    "z": -663.7491453
-                },
-                {
-                    "x": -315.786506,
-                    "y": 191.60286,
-                    "z": -639.171814
-                },
-                {
-                    "x": -295.103034,
-                    "y": 191.60286,
-                    "z": -684.406677
-                }
-            ]
-        },
-        {
-            "name": "SectorTeam1",
+            "name": "Sector",
             "ObjId": 501,
             "AutoEnableVehicles": false,
             "MinimapOutline_Sector_ProjectToGround": false,
@@ -821,7 +719,7 @@
             "MCOMs": [
                 "MCOM_TEAM1"
             ],
-            "SectorArea": "SectorAreaTeam1",
+            "SectorArea": "CombatArea/CombatVolume",
             "type": "Sector",
             "right": {
                 "x": 1,
@@ -843,7 +741,7 @@
                 "y": 192.0159,
                 "z": -670.821
             },
-            "id": "SectorTeam1",
+            "id": "Sector",
             "linked": [
                 "SectorArea",
                 "HQs",

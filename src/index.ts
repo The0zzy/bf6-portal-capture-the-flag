@@ -6,7 +6,7 @@ const targetScore = 3;
 const team1 = mod.GetTeam(1);
 const team2 = mod.GetTeam(2);
 
-let bombPosTeam1: mod.Vector = ZEROVECTOR
+let bombPosTeam1: mod.Vector = ZEROVECTOR;
 let bombPosTeam2: mod.Vector = ZEROVECTOR;
 let bombTeam1: mod.Bomb;
 let bombTeam2: mod.Bomb;
@@ -16,6 +16,36 @@ let capturePointTeam1: mod.CapturePoint;
 let capturePointTeam2: mod.CapturePoint;
 let captureAreaTeam1: mod.AreaTrigger;
 let captureAreaTeam2: mod.AreaTrigger;
+
+export interface PlayerData {
+    kills: number;
+    deaths: number;
+    assists: number;
+    intelDeliveries: number;
+    score: number;
+}
+
+export const playerData = new Map<number, PlayerData>();
+
+function createPlayerData(): PlayerData {
+    return {
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        intelDeliveries: 0,
+        score: 0,
+    };
+}
+
+function getPlayerData(player: mod.Player | number): PlayerData {
+    const playerId = typeof player === 'number' ? player : mod.GetObjId(player);
+    let data = playerData.get(playerId);
+    if (!data) {
+        data = createPlayerData();
+        playerData.set(playerId, data);
+    }
+    return data;
+}
 
 Events.OnGameModeStarted.subscribe(async () => {
     for (let i = 0; i < 5; i++) {
@@ -32,15 +62,15 @@ Events.OnGameModeStarted.subscribe(async () => {
     mod.SetBombTeam(bombTeam1, team2);
     // only team 1 is able to pick up the bomb at team 2's MCOM
     mod.SetBombTeam(bombTeam2, team1);
-    mod.SetBombWorldIconGlobalVisibility(bombTeam1, false);
-    mod.SetBombWorldIconGlobalVisibility(bombTeam2, false);
+    mod.SetBombWorldIconGlobalVisibility(bombTeam1, true);
+    mod.SetBombWorldIconGlobalVisibility(bombTeam2, true);
     mod.SetBombDropFuseTime(bombTeam1, bombDropFuseTime);
     mod.SetBombDropFuseTime(bombTeam2, bombDropFuseTime);
 
     mcomTeam1 = mod.GetMCOM(201);
     mcomTeam2 = mod.GetMCOM(202);
-    mod.EnableGameModeObjective(mcomTeam1, false);
-    mod.EnableGameModeObjective(mcomTeam2, false);
+    mod.EnableGameModeObjective(mcomTeam1, true);
+    mod.EnableGameModeObjective(mcomTeam2, true);
 
     captureAreaTeam1 = mod.GetAreaTrigger(301);
     captureAreaTeam2 = mod.GetAreaTrigger(302);
@@ -75,10 +105,20 @@ Events.OnGameModeStarted.subscribe(async () => {
         mod.Message(mod.stringkeys.ctf.scoreboard.col1),
         mod.Message(mod.stringkeys.ctf.scoreboard.col2),
         mod.Message(mod.stringkeys.ctf.scoreboard.col3),
-        mod.Message(mod.stringkeys.ctf.scoreboard.col4)
+        mod.Message(mod.stringkeys.ctf.scoreboard.col4),
+        mod.Message(mod.stringkeys.ctf.scoreboard.col5)
     );
-    mod.SetScoreboardColumnWidths(25, 25, 25, 25);
-    mod.SetScoreboardSorting(3, false);
+    mod.SetScoreboardColumnWidths(20, 20, 20, 20, 20);
+    mod.SetScoreboardSorting(4, false);
+});
+
+Events.OnPlayerJoinGame.subscribe(async (player: mod.Player) => {
+    playerData.set(mod.GetObjId(player), createPlayerData());
+    updateScoreboard(player);
+});
+
+Events.OnPlayerLeaveGame.subscribe(async (playerId: number) => {
+    playerData.delete(playerId);
 });
 
 Events.OnPlayerEnterAreaTrigger.subscribe(async (player, areaTrigger) => {
@@ -100,6 +140,12 @@ Events.OnPlayerEnterAreaTrigger.subscribe(async (player, areaTrigger) => {
         mod.ForceBombDrop(enemyBomb);
         mod.ForceBombReset(enemyBomb);
         mod.SetGameModeScore(scoringTeam, mod.GetGameModeScore(scoringTeam) + 1);
+
+        const data = getPlayerData(player);
+        data.intelDeliveries += 1;
+        data.score += 1;
+        updateScoreboard(player);
+
         mod.DisplayHighlightedWorldLogMessage(
             mod.Message(
                 mod.stringkeys.ctf.scored,
@@ -114,7 +160,12 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
     mod.SetBombWorldIconGlobalVisibility(bomb, true);
     let scoringTeam = mod.GetTeam(player);
     let mcomToActivate = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
-    mod.EnableGameModeObjective(mcomToActivate, true);
+    // mod.EnableGameModeObjective(mcomToActivate, true);
+
+    const data = getPlayerData(player);
+    data.score += 50;
+    updateScoreboard(player);
+
     mod.DisplayHighlightedWorldLogMessage(
         mod.Message(
             mod.stringkeys.ctf.picked_up,
@@ -124,19 +175,41 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
     );
 });
 
+Events.OnBombStateChanged.subscribe(async (bomb, state) => {
+    if (state === mod.BombState.Resetting) {
+        let mcomToDisable = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
+        // mod.EnableGameModeObjective(mcomToDisable, false);
+    }
+});
+
 Events.OnPlayerEarnedKill.subscribe(async (player, victim) => {
+    const data = getPlayerData(player);
+    data.kills += 1;
+    data.score += 1;
     updateScoreboard(player);
 });
 Events.OnPlayerEarnedKillAssist.subscribe(async (player, victim) => {
+    const data = getPlayerData(player);
+    data.assists += 1;
+    data.score += 1;
     updateScoreboard(player);
 });
 Events.OnPlayerDied.subscribe(async (player, killer) => {
+    const data = getPlayerData(player);
+    data.deaths += 1;
     updateScoreboard(player);
 });
 
 function updateScoreboard(player: mod.Player) {
+    if (!mod.IsPlayerValid(player)) return;
+    const data = getPlayerData(player);
     mod.SetScoreboardPlayerValues(
-        player, mod.GetPlayerKills(player), mod.GetPlayerDeaths(player), 0, 0
+        player,
+        data.kills,
+        data.deaths,
+        data.assists,
+        data.intelDeliveries,
+        data.score
     );
 }
 

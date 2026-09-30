@@ -8,7 +8,8 @@
             "col1": "Kills",
             "col2": "Deaths",
             "col3": "Assists",
-            "col4": "Intel Captured"
+            "col4": "Intel",
+            "col5": "Score"
         },
         "scored": "Team {} ( {} ) captured some intel!",
         "picked_up": "Team {} ( {} ) picked up the intel!"
