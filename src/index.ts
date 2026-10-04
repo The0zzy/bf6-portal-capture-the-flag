@@ -6,8 +6,6 @@ const targetScore = 3;
 const team1 = mod.GetTeam(1);
 const team2 = mod.GetTeam(2);
 
-let bombPosTeam1: mod.Vector = ZEROVECTOR;
-let bombPosTeam2: mod.Vector = ZEROVECTOR;
 let bombTeam1: mod.Bomb;
 let bombTeam2: mod.Bomb;
 let mcomTeam1: mod.MCOM;
@@ -56,37 +54,35 @@ Events.OnGameModeStarted.subscribe(async () => {
 
     bombTeam1 = mod.GetBomb(101);
     bombTeam2 = mod.GetBomb(102);
-    bombPosTeam1 = mod.GetObjectPosition(bombTeam1);
-    bombPosTeam2 = mod.GetObjectPosition(bombTeam2);
     // only team 2 is able to pick up the bomb at team 1's MCOM
     mod.SetBombTeam(bombTeam1, team2);
     // only team 1 is able to pick up the bomb at team 2's MCOM
     mod.SetBombTeam(bombTeam2, team1);
-    mod.SetBombWorldIconGlobalVisibility(bombTeam1, true);
-    mod.SetBombWorldIconGlobalVisibility(bombTeam2, true);
-    mod.SetBombDropFuseTime(bombTeam1, bombDropFuseTime);
-    mod.SetBombDropFuseTime(bombTeam2, bombDropFuseTime);
+    for (const bomb of [bombTeam1, bombTeam2]) {
+        mod.SetBombWorldIconGlobalVisibility(bomb, true);
+        mod.SetBombDropFuseTime(bomb, bombDropFuseTime);
+    }
 
     mcomTeam1 = mod.GetMCOM(201);
     mcomTeam2 = mod.GetMCOM(202);
-    mod.EnableGameModeObjective(mcomTeam1, false);
-    mod.EnableGameModeObjective(mcomTeam2, false);
-    mod.SetMCOMArmType(mcomTeam1, mod.MCOMArmType.Bomb);
-    mod.SetMCOMArmType(mcomTeam2, mod.MCOMArmType.Bomb);
+    for (const mcom of [mcomTeam1, mcomTeam2]) {
+        mod.EnableGameModeObjective(mcom, false);
+        // it seems that MCOMs having their armtype set to bomb are no longer able to be enabled/disabled afterwards
+        mod.SetMCOMArmType(mcom, mod.MCOMArmType.Bomb);
+    }
 
     captureAreaTeam1 = mod.GetAreaTrigger(301);
     captureAreaTeam2 = mod.GetAreaTrigger(302);
 
     capturePointTeam1 = mod.GetCapturePoint(401);
     capturePointTeam2 = mod.GetCapturePoint(402);
-    mod.EnableGameModeObjective(capturePointTeam1, true);
-    mod.EnableGameModeObjective(capturePointTeam2, true);
-    mod.EnableCapturePointDeploying(capturePointTeam1, false);
-    mod.EnableCapturePointDeploying(capturePointTeam2, false);
-    mod.SetCapturePointNeutralizationTime(capturePointTeam1, 9999);
-    mod.SetCapturePointNeutralizationTime(capturePointTeam2, 9999);
-    mod.SetCapturePointCapturingTime(capturePointTeam1, 9999);
-    mod.SetCapturePointCapturingTime(capturePointTeam2, 9999);
+    for (const cp of [capturePointTeam1, capturePointTeam2]) {
+        mod.EnableGameModeObjective(cp, true);
+        mod.EnableCapturePointDeploying(cp, false);
+        mod.SetCapturePointNeutralizationTime(cp, 9999);
+        mod.SetCapturePointCapturingTime(cp, 9999);
+        mod.SetMaxCaptureMultiplier(cp, 0.0001);
+    }
 
     mod.SetGameModeInitialScore(team1, 0);
     mod.SetGameModeInitialScore(team2, 0);
@@ -162,7 +158,9 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
     mod.SetBombWorldIconGlobalVisibility(bomb, true);
     let scoringTeam = mod.GetTeam(player);
     let mcomToActivate = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
+    mod.SetMCOMArmType(mcomToActivate, mod.MCOMArmType.Default);
     mod.EnableGameModeObjective(mcomToActivate, true);
+    mod.SetMCOMArmType(mcomToActivate, mod.MCOMArmType.Bomb);
 
     const data = getPlayerData(player);
     data.score += 50;
@@ -178,11 +176,61 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
 });
 
 Events.OnBombStateChanged.subscribe(async (bomb, state) => {
-    if (state === mod.BombState.Resetting) {
+    let bombStateStringKey = "";
+    switch (true) {
+        case mod.Equals(state, mod.BombState.Carried):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.carried;
+            break;
+        case mod.Equals(state, mod.BombState.Defusing):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.defusing;
+            break;
+        case mod.Equals(state, mod.BombState.Dropped):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.dropped;
+            break;
+        case mod.Equals(state, mod.BombState.Inactive):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.inactive;
+            break;
+        case mod.Equals(state, mod.BombState.ObjectiveCompleted):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.objective_completed;
+            break;
+        case mod.Equals(state, mod.BombState.Planted):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.planted;
+            break;
+        case mod.Equals(state, mod.BombState.Planting):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.planting;
+            break;
+        case mod.Equals(state, mod.BombState.Resetting):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.resetting;
+            break;
+        case mod.Equals(state, mod.BombState.Spawned):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.spawned;
+            break;
+        case mod.Equals(state, mod.BombState.Unspawned):
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.unspawned;
+            break;
+        default:
+            bombStateStringKey = mod.stringkeys.ctf.bomb_states.state_changed;
+            break;
+    }
+    mod.DisplayHighlightedWorldLogMessage(
+        mod.Message(
+            bombStateStringKey,
+            mod.GetObjId(bomb),
+            Number(state)
+        )
+    );
+    mod.SendErrorReport(
+        mod.Message(
+            bombStateStringKey,
+            mod.GetObjId(bomb),
+            Number(state)
+        )
+    );
+    if (mod.Equals(state, mod.BombState.Resetting)) {
         let mcomToDisable = mod.Equals(bomb, bombTeam1) ? mcomTeam2 : mcomTeam1;
+        mod.SetMCOMArmType(mcomToDisable, mod.MCOMArmType.Default);
         mod.EnableGameModeObjective(mcomToDisable, false);
-    } else if (state === mod.BombState.Unspawned) {
-        mod.ForceBombReset(bomb);
+        mod.SetMCOMArmType(mcomToDisable, mod.MCOMArmType.Bomb);
         mod.ForceBombSpawn(bomb);
     }
 });

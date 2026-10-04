@@ -12,6 +12,19 @@
             "col5": "Score"
         },
         "scored": "Team {} ( {} ) captured some intel!",
-        "picked_up": "Team {} ( {} ) picked up the intel!"
+        "picked_up": "Team {} ( {} ) picked up the intel!",
+        "bomb_states": {
+            "carried": "Bomb {} is being carried ({})",
+            "defusing": "Bomb {} is being defused ({})",
+            "dropped": "Bomb {} has been dropped ({})",
+            "inactive": "Bomb {} is inactive ({})",
+            "objective_completed": "Bomb {} has completed its objective ({})",
+            "planting": "Bomb {} is being planted ({})",
+            "planted": "Bomb {} has been planted ({})",
+            "resetting": "Bomb {} is resetting ({})",
+            "spawned": "Bomb {} has spawned ({})",
+            "unspawned": "Bomb {} is unspawned ({})",
+            "state_changed": "Bomb {} changed state to {}"
+        }
     }
 }
