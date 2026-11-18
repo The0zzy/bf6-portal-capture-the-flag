@@ -45,6 +45,25 @@ function getPlayerData(player: mod.Player | number): PlayerData {
     return data;
 }
 
+function sendIntelNotification(scoringTeam: mod.Team, message: mod.Message): void {
+    const enemyTeam = mod.Equals(scoringTeam, team1) ? team2 : team1;
+    const friendly = mod.CreateGameEventNotificationData();
+    mod.SetIconForGameEventNotificationData(friendly, mod.WorldIconImages.Flag);
+    mod.SetSizeForGameEventNotificationData(friendly, mod.GameEventNotificationSizes.Large);
+    mod.SetColorForGameEventNotificationData(friendly, mod.GameEventNotificationColors.Friendly);
+    mod.SetStyleForGameEventNotificationData(friendly, mod.GameEventNotificationStyles.Normal);
+    mod.SetMessageForGameEventNotificationData(friendly, message);
+    mod.SendGameEventNotification(friendly, scoringTeam);
+
+    const enemy = mod.CreateGameEventNotificationData();
+    mod.SetIconForGameEventNotificationData(enemy, mod.WorldIconImages.Flag);
+    mod.SetSizeForGameEventNotificationData(enemy, mod.GameEventNotificationSizes.Large);
+    mod.SetColorForGameEventNotificationData(enemy, mod.GameEventNotificationColors.Enemy);
+    mod.SetStyleForGameEventNotificationData(enemy, mod.GameEventNotificationStyles.Normal);
+    mod.SetMessageForGameEventNotificationData(enemy, message);
+    mod.SendGameEventNotification(enemy, enemyTeam);
+}
+
 Events.OnGameModeStarted.subscribe(async () => {
     for (let i = 0; i < 5; i++) {
         mod.DisplayHighlightedWorldLogMessage(mod.Message(mod.stringkeys.ctf.init1));
@@ -144,7 +163,8 @@ Events.OnPlayerEnterAreaTrigger.subscribe(async (player, areaTrigger) => {
         data.score += 1;
         updateScoreboard(player);
 
-        mod.DisplayHighlightedWorldLogMessage(
+        sendIntelNotification(
+            scoringTeam,
             mod.Message(
                 mod.stringkeys.ctf.scored,
                 mod.GetObjId(scoringTeam),
@@ -166,7 +186,8 @@ Events.OnBombPickedUp.subscribe(async (bomb, player) => {
     data.score += 50;
     updateScoreboard(player);
 
-    mod.DisplayHighlightedWorldLogMessage(
+    sendIntelNotification(
+        scoringTeam,
         mod.Message(
             mod.stringkeys.ctf.picked_up,
             mod.GetObjId(scoringTeam),
